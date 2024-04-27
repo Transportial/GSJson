@@ -1,10 +1,11 @@
 plugins {
     kotlin("jvm") version "1.9.23"
     `maven-publish`
+    signing
 }
 
 group = "com.transportial"
-version = "1.0-SNAPSHOT"
+version = "1.0"
 
 repositories {
     mavenCentral()
@@ -27,8 +28,8 @@ kotlin {
 
 publishing {
     publications {
-        create<MavenPublication>("mavenJava") {
-            artifactId = "my-library"
+        register<MavenPublication>("gpr") {
+            artifactId = "gsjson"
             from(components["java"])
             versionMapping {
                 usage("java-api") {
@@ -55,20 +56,17 @@ publishing {
                         email = "thomas.kolmans@transportial.com"
                     }
                 }
-//                scm {
-//                    connection = "scm:git:git://example.com/my-library.git"
-//                    developerConnection = "scm:git:ssh://example.com/my-library.git"
-//                    url = "http://example.com/my-library/"
-//                }
             }
         }
     }
-//    repositories {
-//        maven {
-//            // change URLs to point to your repos, e.g. http://my.org/repo
-//            val releasesRepoUrl = uri(layout.buildDirectory.dir("repos/releases"))
-//            val snapshotsRepoUrl = uri(layout.buildDirectory.dir("repos/snapshots"))
-//            url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
-//        }
-//    }
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/Transportial/GSJson")
+            credentials {
+                username = project.findProperty("gpr.user") as String? ?: System.getenv("USERNAME")
+                password = project.findProperty("gpr.key") as String? ?: System.getenv("TOKEN")
+            }
+        }
+    }
 }
