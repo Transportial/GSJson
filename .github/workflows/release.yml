@@ -1,11 +1,13 @@
-name: Gradle Package
+name: Release
 
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - 'v*'
 
 jobs:
-  build:
+  release:
+    name: Make GitHub release and publish to Maven Central
 
     runs-on: ubuntu-latest
     permissions:
@@ -31,8 +33,11 @@ jobs:
     - name: Test with Gradle
       run: ./gradlew test
 
-    - name: Publish to GitHub Packages
-      run: ./gradlew publish
+    - name: Publish to Maven Central
+      if: success()
+      run: ./gradlew publish closeAndReleaseStagingRepository
       env:
-        USERNAME: thomaskolmans
-        TOKEN: ${{secrets.TOKEN}}
+        GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+        GPG_SIGNING_PASSPHRASE: ${{ secrets.GPG_SIGNING_PASSPHRASE }}
+        OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+        OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}

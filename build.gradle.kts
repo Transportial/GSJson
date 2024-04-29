@@ -2,13 +2,29 @@ plugins {
     kotlin("jvm") version "1.9.23"
     `maven-publish`
     signing
+    id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
+}
+
+object Meta {
+    const val desc = "GSJson is a getter/setter syntax interpretation language"
+    const val license = "Apache-2.0"
+    const val githubRepo = "transportial/gsjson"
+    const val release = "https://s01.oss.sonatype.org/service/local/"
+    const val snapshot = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
 }
 
 group = "com.transportial"
-version = "1.0"
+version = "1.0.4"
+
+val repositories = arrayOf(
+    "https://oss.sonatype.org/content/repositories/snapshots/",
+    "https://s01.oss.sonatype.org/content/repositories/snapshots/"
+)
 
 repositories {
+    mavenLocal()
     mavenCentral()
+    repositories.forEach { maven(it) }
 }
 
 dependencies {
@@ -26,27 +42,51 @@ kotlin {
     jvmToolchain(17)
 }
 
+val sourcesJar by tasks.registering(Jar::class) {
+    archiveClassifier.set("sources")
+    from(kotlin.sourceSets.main.get().kotlin)
+}
+val javadocJar by tasks.creating(Jar::class) {
+    archiveClassifier.set("javadoc")
+    from(kotlin.sourceSets.main.get().kotlin)
+}
+
+artifacts {
+    archives(sourcesJar)
+    archives(javadocJar)
+}
+
+signing {
+    val signingKey = providers
+        .environmentVariable("GPG_SIGNING_KEY")
+    val signingPassphrase = providers
+        .environmentVariable("GPG_SIGNING_PASSPHRASE")
+
+    if (signingKey.isPresent && signingPassphrase.isPresent) {
+        useInMemoryPgpKeys(signingKey.get(), signingPassphrase.get())
+        val extension = extensions
+            .getByName("publishing") as PublishingExtension
+        sign(extension.publications)
+    }
+}
+
 publishing {
     publications {
-        register<MavenPublication>("gpr") {
-            artifactId = "gsjson"
-            from(components["java"])
-            versionMapping {
-                usage("java-api") {
-                    fromResolutionOf("runtimeClasspath")
-                }
-                usage("java-runtime") {
-                    fromResolutionResult()
-                }
-            }
+        create<MavenPublication>("maven") {
+            groupId = project.group.toString()
+            artifactId = project.name
+            version = project.version.toString()
+            from(components["kotlin"])
+            artifact(tasks["sourcesJar"])
+            artifact(tasks["javadocJar"])
             pom {
-                name = "GSJson"
-                description = "GSJson is a getter/setter syntax interpretation language"
-                url = "https://github.com/Transportial/GSJson"
+                name.set(project.name)
+                description.set(Meta.desc)
+                url.set("https://github.com/${Meta.githubRepo}")
                 licenses {
                     license {
-                        name = "The Apache License, Version 2.0"
-                        url = "http://www.apache.org/licenses/LICENSE-2.0.txt"
+                        name.set(Meta.license)
+                        url.set("https://opensource.org/licenses/Apache-2.0")
                     }
                 }
                 developers {
@@ -56,16 +96,31 @@ publishing {
                         email = "thomas.kolmans@transportial.com"
                     }
                 }
+                scm {
+                    url.set("https://github.com/${Meta.githubRepo}.git")
+                    connection.set("scm:git:git://github.com/${Meta.githubRepo}.git")
+                    developerConnection.set("scm:git:git://github.com/#${Meta.githubRepo}.git")
+                }
+                issueManagement {
+                    url.set("https://github.com/${Meta.githubRepo}/issues")
+                }
             }
         }
     }
+}
+
+nexusPublishing {
     repositories {
-        maven {
-            name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/Transportial/GSJson")
-            credentials {
-                username = project.findProperty("gpr.user") as String? ?: System.getenv("USERNAME")
-                password = project.findProperty("gpr.key") as String? ?: System.getenv("TOKEN")
+        sonatype {
+            nexusUrl.set(uri(Meta.release))
+            snapshotRepositoryUrl.set(uri(Meta.snapshot))
+            val ossrhUsername = providers
+                .environmentVariable("OSSRH_USERNAME")
+            val ossrhPassword = providers
+                .environmentVariable("OSSRH_PASSWORD")
+            if (ossrhUsername.isPresent && ossrhPassword.isPresent) {
+                username.set(ossrhUsername.get())
+                password.set(ossrhPassword.get())
             }
         }
     }
