@@ -1,3 +1,5 @@
+import com.vanniktech.maven.publish.SonatypeHost
+
 plugins {
     kotlin("jvm") version "1.9.23"
     id("com.vanniktech.maven.publish") version "0.28.0"
@@ -11,7 +13,7 @@ object Meta {
 }
 
 group = "com.transportial"
-version = "1.0.4"
+version = "1.0.6"
 
 repositories {
     mavenLocal()
@@ -35,6 +37,9 @@ kotlin {
 
 
 mavenPublishing {
+    publishToMavenCentral(SonatypeHost.DEFAULT)
+    signAllPublications()
+
     coordinates(group.toString(), Meta.name, version.toString())
 
     pom {
