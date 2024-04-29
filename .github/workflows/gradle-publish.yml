@@ -28,8 +28,11 @@ jobs:
     - name: Build with Gradle
       run: ./gradlew build
 
+    - name: Test with Gradle
+      run: ./gradlew test
+
     - name: Publish to GitHub Packages
       run: ./gradlew publish
       env:
-        USERNAME: ${{ github.actor }}
-        TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        USERNAME: ${{ vars.USERNAME }}
+        TOKEN: ${{ secrets.TOKEN }}
