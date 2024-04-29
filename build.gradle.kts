@@ -1,4 +1,6 @@
 import com.vanniktech.maven.publish.SonatypeHost
+import com.vanniktech.maven.publish.JavaLibrary
+import com.vanniktech.maven.publish.JavadocJar
 
 plugins {
     kotlin("jvm") version "1.9.23"
@@ -13,7 +15,7 @@ object Meta {
 }
 
 group = "com.transportial"
-version = "1.0.6"
+version = "1.0.7"
 
 repositories {
     mavenLocal()
@@ -37,7 +39,12 @@ kotlin {
 
 
 mavenPublishing {
-    publishToMavenCentral(SonatypeHost.DEFAULT)
+    configure(JavaLibrary(
+        javadocJar = JavadocJar.Javadoc(),
+        sourcesJar = true,
+    ))
+
+    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL, automaticRelease = true)
     signAllPublications()
 
     coordinates(group.toString(), Meta.name, version.toString())
