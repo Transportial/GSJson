@@ -8,7 +8,7 @@ on:
 jobs:
   release:
     name: Make GitHub release and publish to Maven Central
-
+    environment: release
     runs-on: ubuntu-latest
     permissions:
       contents: read
