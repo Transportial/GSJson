@@ -67,9 +67,9 @@ mavenPublishing {
 
         developers {
             developer {
-                id.set("thomaskolmans")
-                name.set("Thomas Kolmans")
-                url.set("https://github.com/thomaskolmans/")
+                id.set(findProperty("POM_DEVELOPER_ID").toString())
+                name.set(findProperty("POM_DEVELOPER_NAME").toString())
+                url.set(findProperty("POM_DEVELOPER_URL").toString())
             }
         }
 
