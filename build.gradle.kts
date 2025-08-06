@@ -39,6 +39,12 @@ kotlin {
     jvmToolchain(17)
 }
 
+signing {
+    val signingKey = findProperty("signing.key").toString()
+    val signingPassword = findProperty("signing.password").toString()
+    useInMemoryPgpKeys(signingKey, signingPassword)
+}
+
 // Configure the vanniktech maven publish plugin
 mavenPublishing {
 
@@ -85,7 +91,7 @@ mavenPublishing {
     }
 
     // Configure signing
-//    signAllPublications()
+    signAllPublications()
 
     // Only configure Maven Central publishing if credentials are available
     val hasCredentials = findProperty("mavenCentralUsername") != null &&
