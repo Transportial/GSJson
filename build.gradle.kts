@@ -1,3 +1,4 @@
+import com.vanniktech.maven.publish.GradlePublishPlugin
 import java.util.Base64
 
 plugins {
@@ -40,6 +41,9 @@ kotlin {
 
 // Configure the vanniktech maven publish plugin
 mavenPublishing {
+
+//    configure(GradlePublishPlugin())
+
     coordinates(
         findProperty("GROUP").toString(),
         findProperty("POM_ARTIFACT_ID").toString(),
@@ -81,7 +85,7 @@ mavenPublishing {
     }
 
     // Configure signing
-    signAllPublications()
+//    signAllPublications()
 
     // Only configure Maven Central publishing if credentials are available
     val hasCredentials = findProperty("mavenCentralUsername") != null &&
