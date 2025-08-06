@@ -1,14 +1,15 @@
-import com.vanniktech.maven.publish.SonatypeHost
-import com.vanniktech.maven.publish.JavaLibrary
-import com.vanniktech.maven.publish.JavadocJar
 
 plugins {
     kotlin("jvm") version "1.9.23"
-    id("com.vanniktech.maven.publish") version "0.28.0"
+//    id("com.vanniktech.maven.publish") version "0.28.0"
+    `maven-publish`
+    signing
+    id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
 }
 
 object Meta {
     const val name = "gsjson"
+    const val username = "transportial"
     const val desc = "GSJson is a getter/setter syntax interpretation language"
     const val license = "Apache-2.0"
     const val githubRepo = "transportial/gsjson"
@@ -37,45 +38,113 @@ kotlin {
     jvmToolchain(17)
 }
 
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
 
-mavenPublishing {
-    configure(JavaLibrary(
-        javadocJar = JavadocJar.Javadoc(),
-        sourcesJar = true,
-    ))
+            pom {
+                name.set("Your Project Name")
+                description.set("A brief description of your project")
+                url.set("https://github.com/yourusername/yourproject")
 
-    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL, automaticRelease = true)
-    signAllPublications()
+                licenses {
+                    license {
+                        name.set("The Apache License, Version 2.0")
+                        url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                    }
+                }
 
-    coordinates(group.toString(), Meta.name, version.toString())
+                developers {
+                    developer {
+                        id.set("yourusername")
+                        name.set("Your Name")
+                        email.set("your.email@example.com")
+                    }
+                }
 
-    pom {
-        name.set(Meta.name)
-        description.set(Meta.desc)
-        inceptionYear.set("2024")
-        url.set("https://github.com/${Meta.githubRepo}")
-        licenses {
-            license {
-                name.set("The Apache License, Version 2.0")
-                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
-                distribution.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                scm {
+                    connection.set("scm:git:git://github.com/transportial/gsjson.git")
+                    developerConnection.set("scm:git:ssh://github.com/transportial/gsjson.git")
+                    url.set("https://github.com/transportial/gsjson")
+                }
             }
-        }
-        organization {
-            name = "Transportial BV"
-            url = "https://transportial.com"
-        }
-        developers {
-            developer {
-                id.set("thomaskolmans")
-                name.set("Thomas Kolmans")
-                url.set("https://github.com/thomaskolmans/")
-            }
-        }
-        scm {
-            url.set("https://github.com/${Meta.githubRepo}")
-            connection.set("scm:git:git://github.com/${Meta.githubRepo}.git")
-            developerConnection.set("scm:git:ssh://git@github.com/${Meta.githubRepo}.git")
         }
     }
 }
+
+signing {
+    val signingKey = findProperty("signing.key") as String?
+    val signingKeyId = findProperty("signing.keyId") as String?
+    val signingPassword = findProperty("signing.password") as String?
+    val signingSecretKeyRingFile = findProperty("signing.secretKeyRingFile") as String?
+
+    if (signingKey != null && signingPassword != null) {
+        // Approach B: Using inline key content
+        useInMemoryPgpKeys(signingKey, signingPassword)
+    } else if (signingKeyId != null && signingPassword != null && signingSecretKeyRingFile != null) {
+        // Approach A: Using key file
+        useInMemoryPgpKeys(
+            signingKeyId,
+            File(signingSecretKeyRingFile).readText(),
+            signingPassword
+        )
+    }
+    sign(publishing.publications["maven"])
+}
+
+//signing {
+//    sign(publishing.publications["maven"])
+//}
+
+nexusPublishing {
+    repositories {
+        sonatype {
+            nexusUrl.set(uri("https://s01.oss.sonatype.org/service/local/"))
+            snapshotRepositoryUrl.set(uri("https://s01.oss.sonatype.org/content/repositories/snapshots/"))
+        }
+    }
+}
+
+
+//mavenPublishing {
+//    configure(JavaLibrary(
+//        javadocJar = JavadocJar.Javadoc(),
+//        sourcesJar = true,
+//    ))
+//
+//    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL, automaticRelease = true)
+//    signAllPublications()
+//
+//    coordinates(group.toString(), Meta.name, version.toString())
+//
+//    pom {
+//        name.set(Meta.name)
+//        description.set(Meta.desc)
+//        inceptionYear.set("2024")
+//        url.set("https://github.com/${Meta.githubRepo}")
+//        licenses {
+//            license {
+//                name.set("The Apache License, Version 2.0")
+//                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+//                distribution.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+//            }
+//        }
+//        organization {
+//            name = "Transportial BV"
+//            url = "https://transportial.com"
+//        }
+//        developers {
+//            developer {
+//                id.set("thomaskolmans")
+//                name.set("Thomas Kolmans")
+//                url.set("https://github.com/thomaskolmans/")
+//            }
+//        }
+//        scm {
+//            url.set("https://github.com/${Meta.githubRepo}")
+//            connection.set("scm:git:git://github.com/${Meta.githubRepo}.git")
+//            developerConnection.set("scm:git:ssh://git@github.com/${Meta.githubRepo}.git")
+//        }
+//    }
+//}
