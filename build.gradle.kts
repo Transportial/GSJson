@@ -16,7 +16,7 @@ object Meta {
 }
 
 group = "com.transportial"
-version = "1.0.9"
+version = "0.1.2"
 
 repositories {
     mavenLocal()
@@ -40,28 +40,32 @@ kotlin {
 }
 
 signing {
-    // These property names must match the environment variables from the GitHub workflow
-    val signingKey = findProperty("signingInMemoryKey")?.toString()
-    val signingPassword = findProperty("signingInMemoryKeyPassword")?.toString()
+    val signingKey = findProperty("signing.key").toString()
+    val signingPassword = findProperty("signing.password").toString()
     useInMemoryPgpKeys(signingKey, signingPassword)
 }
 
 // Configure the vanniktech maven publish plugin
 mavenPublishing {
 
-    // Use project properties and the Meta object directly for better clarity and robustness
-    coordinates(project.group.toString(), Meta.name, project.version.toString())
+//    configure(GradlePublishPlugin())
+
+    coordinates(
+        findProperty("GROUP").toString(),
+        findProperty("POM_ARTIFACT_ID").toString(),
+        version.toString()
+    )
 
     pom {
-        name.set(Meta.name)
-        description.set(Meta.desc)
-        url.set("https://github.com/${Meta.githubRepo}")
+        name.set(findProperty("POM_NAME").toString())
+        description.set(findProperty("POM_DESCRIPTION").toString())
+        url.set(findProperty("POM_URL").toString())
         inceptionYear.set("2024")
 
         licenses {
             license {
-                name.set(Meta.license)
-                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                name.set(findProperty("POM_LICENSE_NAME")?.toString() ?: Meta.license)
+                url.set(findProperty("POM_LICENSE_URL").toString())
                 distribution.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
             }
         }
@@ -73,9 +77,9 @@ mavenPublishing {
 
         developers {
             developer {
-                id.set(Meta.username)
-                name.set("T. de Boer") // Or your name
-                url.set("https://github.com/${Meta.username}")
+                id.set(findProperty("POM_DEVELOPER_ID").toString())
+                name.set(findProperty("POM_DEVELOPER_NAME").toString())
+                url.set(findProperty("POM_DEVELOPER_URL").toString())
             }
         }
 
@@ -96,4 +100,11 @@ mavenPublishing {
     if (hasCredentials) {
         publishToMavenCentral(automaticRelease = true)
     }
+}
+
+// Add this task for automatic release
+tasks.register("publishAndAutoRelease") {
+    group = "publishing"
+    description = "Publishes to Sonatype and automatically releases"
+    dependsOn("publishAllPublicationsToMavenCentralRepository")
 }
