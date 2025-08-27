@@ -55,21 +55,21 @@ mavenPublishing {
 //    configure(GradlePublishPlugin())
 
     coordinates(
-        findProperty("GROUP").toString(),
-        findProperty("POM_ARTIFACT_ID").toString(),
+        group.toString(),
+        Meta.name,
         version.toString()
     )
 
     pom {
-        name.set(findProperty("POM_NAME").toString())
-        description.set(findProperty("POM_DESCRIPTION").toString())
-        url.set(findProperty("POM_URL").toString())
+        name.set(Meta.name)
+        description.set(Meta.desc)
+        url.set("https://github.com/${Meta.githubRepo}")
         inceptionYear.set("2024")
 
         licenses {
             license {
-                name.set(findProperty("POM_LICENSE_NAME")?.toString() ?: Meta.license)
-                url.set(findProperty("POM_LICENSE_URL").toString())
+                name.set(Meta.license)
+                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
                 distribution.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
             }
         }
@@ -81,9 +81,9 @@ mavenPublishing {
 
         developers {
             developer {
-                id.set(findProperty("POM_DEVELOPER_ID").toString())
-                name.set(findProperty("POM_DEVELOPER_NAME").toString())
-                url.set(findProperty("POM_DEVELOPER_URL").toString())
+                id.set(Meta.username)
+                name.set("Transportial BV")
+                url.set("https://transportial.com")
             }
         }
 
