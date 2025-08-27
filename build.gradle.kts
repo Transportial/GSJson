@@ -16,7 +16,7 @@ object Meta {
 }
 
 group = "com.transportial"
-version = "0.1.3"
+version = "0.1.4"
 
 repositories {
     mavenLocal()
@@ -40,9 +40,13 @@ kotlin {
 }
 
 signing {
-    val signingKey = findProperty("signing.key").toString()
-    val signingPassword = findProperty("signing.password").toString()
-    useInMemoryPgpKeys(signingKey, signingPassword)
+    // Check environment variables first (for GitHub Actions), then fallback to properties
+    val signingKey = System.getenv("GPG_SIGNING_KEY") ?: findProperty("signing.key")?.toString()
+    val signingPassword = System.getenv("MAVEN_GPG_PASSPHRASE") ?: findProperty("signing.password")?.toString()
+
+    if (signingKey != null && signingPassword != null) {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+    }
 }
 
 // Configure the vanniktech maven publish plugin
