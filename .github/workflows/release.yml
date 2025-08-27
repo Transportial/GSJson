@@ -1,7 +1,9 @@
 name: Publish package to the Maven Central Repository
 on:
-  release:
-    types: [created]
+  push:
+    branches:
+      - main
+      - develop
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -17,8 +19,6 @@ jobs:
           server-password: MAVEN_PASSWORD
           gpg-private-key: ${{ secrets.GPG_SIGNING_KEY }}
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
-      - name: Set version
-        run: mvn versions:set -DnewVersion=${{ github.event.release.tag_name }}
       - name: Publish package
         run: mvn -P release --batch-mode deploy -DskipTests
         env:
