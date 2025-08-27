@@ -94,12 +94,10 @@ mavenPublishing {
     signAllPublications()
 
     // Only configure Maven Central publishing if credentials are available
-    val hasCredentials = findProperty("mavenCentralUsername") != null &&
-            findProperty("mavenCentralPassword") != null
+    val hasCredentials = (System.getenv("MAVEN_USERNAME") != null && System.getenv("MAVEN_PASSWORD") != null) ||
+            (findProperty("mavenCentralUsername") != null && findProperty("mavenCentralPassword") != null)
 
-    if (hasCredentials) {
-        publishToMavenCentral(automaticRelease = true)
-    }
+    publishToMavenCentral(automaticRelease = hasCredentials)
 }
 
 // Add this task for automatic release
