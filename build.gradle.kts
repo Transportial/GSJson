@@ -1,14 +1,15 @@
-import com.vanniktech.maven.publish.SonatypeHost
-import com.vanniktech.maven.publish.JavaLibrary
-import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.GradlePublishPlugin
+import java.util.Base64
 
 plugins {
     kotlin("jvm") version "1.9.23"
-    id("com.vanniktech.maven.publish") version "0.28.0"
+    signing
+    id("com.vanniktech.maven.publish") version "0.34.0"
 }
 
 object Meta {
     const val name = "gsjson"
+    const val username = "transportial"
     const val desc = "GSJson is a getter/setter syntax interpretation language"
     const val license = "Apache-2.0"
     const val githubRepo = "transportial/gsjson"
@@ -33,49 +34,66 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
 }
+
 kotlin {
     jvmToolchain(17)
 }
 
+signing {
+    // These property names must match the environment variables from the GitHub workflow
+    val signingKey = findProperty("signingInMemoryKey")?.toString()
+    val signingPassword = findProperty("signingInMemoryKeyPassword")?.toString()
+    useInMemoryPgpKeys(signingKey, signingPassword)
+}
 
+// Configure the vanniktech maven publish plugin
 mavenPublishing {
-    configure(JavaLibrary(
-        javadocJar = JavadocJar.Javadoc(),
-        sourcesJar = true,
-    ))
 
-    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL, automaticRelease = true)
-    signAllPublications()
-
-    coordinates(group.toString(), Meta.name, version.toString())
+    // Use project properties and the Meta object directly for better clarity and robustness
+    coordinates(project.group.toString(), Meta.name, project.version.toString())
 
     pom {
         name.set(Meta.name)
         description.set(Meta.desc)
-        inceptionYear.set("2024")
         url.set("https://github.com/${Meta.githubRepo}")
+        inceptionYear.set("2024")
+
         licenses {
             license {
-                name.set("The Apache License, Version 2.0")
+                name.set(Meta.license)
                 url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
                 distribution.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
             }
         }
+
         organization {
-            name = "Transportial BV"
-            url = "https://transportial.com"
+            name.set("Transportial BV")
+            url.set("https://transportial.com")
         }
+
         developers {
             developer {
-                id.set("thomaskolmans")
-                name.set("Thomas Kolmans")
-                url.set("https://github.com/thomaskolmans/")
+                id.set(Meta.username)
+                name.set("T. de Boer") // Or your name
+                url.set("https://github.com/${Meta.username}")
             }
         }
+
         scm {
-            url.set("https://github.com/${Meta.githubRepo}")
             connection.set("scm:git:git://github.com/${Meta.githubRepo}.git")
             developerConnection.set("scm:git:ssh://git@github.com/${Meta.githubRepo}.git")
+            url.set("https://github.com/${Meta.githubRepo}")
         }
+    }
+
+    // Configure signing
+    signAllPublications()
+
+    // Only configure Maven Central publishing if credentials are available
+    val hasCredentials = findProperty("mavenCentralUsername") != null &&
+            findProperty("mavenCentralPassword") != null
+
+    if (hasCredentials) {
+        publishToMavenCentral(automaticRelease = true)
     }
 }
