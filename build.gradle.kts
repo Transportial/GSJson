@@ -16,7 +16,7 @@ object Meta {
 }
 
 group = "com.transportial"
-version = "1.0.8"
+version = "0.1.2"
 
 repositories {
     mavenLocal()
@@ -53,7 +53,7 @@ mavenPublishing {
     coordinates(
         findProperty("GROUP").toString(),
         findProperty("POM_ARTIFACT_ID").toString(),
-        findProperty("VERSION_NAME").toString()
+        version.toString()
     )
 
     pom {
