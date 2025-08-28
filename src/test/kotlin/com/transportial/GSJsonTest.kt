@@ -2,6 +2,8 @@ package com.transportial
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 
 
@@ -98,5 +100,140 @@ internal object GSJsonTest {
 
         val friendsOne = GSJson.set("", "friends.[0].first", "Dale")
         assertEquals("""{"friends":[{"first":"Dale"}]}""", friendsOne, "Friend one, first name, should be \"Dale\"")
+    }
+    
+    @Test
+    fun testWildcardSelectors() {
+        val testJson = """
+        {
+            "test1": "value1",
+            "test2": "value2", 
+            "other": "value3"
+        }
+        """.trimIndent()
+        
+        val allTestKeys = GSJson.get(testJson, "test*")
+        assertNotEquals(null, allTestKeys, "Wildcard should match multiple keys")
+        
+        val singleCharMatch = GSJson.get(testJson, "othe?")
+        assertEquals("value3", singleCharMatch, "Single char wildcard should match 'other'")
+    }
+    
+    @Test
+    fun testArrayLengthAndChildPaths() {
+        val arrayLength = GSJson.get(selectJson, "children.[#]")
+        assertEquals(3, arrayLength, "Array length should be 3")
+        
+        val allFirstNames = GSJson.get(selectJson, "friends.[#.first]")
+        assertNotEquals(null, allFirstNames, "Should get all first names")
+    }
+    
+    @Test
+    fun testAdditionalComparisonOperators() {
+        val friendsOlderThan45 = GSJson.get(selectJson, "friends.[age > \"45\"].[0].first")
+        assertNotEquals(null, friendsOlderThan45, "Should find friends older than 45")
+        
+        val friendsYoungerOrEqual44 = GSJson.get(selectJson, "friends.[age <= \"44\"].[0].first")
+        assertEquals("Dale", friendsYoungerOrEqual44, "Should find Dale who is 44 or younger")
+    }
+    
+    @Test
+    fun testPatternMatching() {
+        val matchingNames = GSJson.get(selectJson, "friends.[first % \"D*\"].[0].first")
+        assertEquals("Dale", matchingNames, "Should match names starting with D")
+        
+        val notMatchingNames = GSJson.get(selectJson, "friends.[first !% \"D*\"].[0].first")
+        assertNotEquals("Dale", notMatchingNames, "Should not match Dale")
+    }
+    
+    @Test
+    fun testBuiltInModifiers() {
+        val reversedChildren = GSJson.get(selectJson, "children|@reverse")
+        assertNotEquals(null, reversedChildren, "Should reverse children array")
+        
+        val keys = GSJson.get(selectJson, "name|@keys")
+        assertNotEquals(null, keys, "Should get object keys")
+        
+        val values = GSJson.get(selectJson, "name|@values")
+        assertNotEquals(null, values, "Should get object values")
+    }
+    
+    @Test
+    fun testJsonLines() {
+        val jsonLinesData = """
+        {"name": "Alice", "age": 30}
+        {"name": "Bob", "age": 25}
+        {"name": "Charlie", "age": 35}
+        """.trimIndent()
+        
+        val lineCount = GSJson.get(jsonLinesData, "..#")
+        assertEquals(3, lineCount, "Should count 3 JSON lines")
+        
+        val secondName = GSJson.get(jsonLinesData, "..[1].name")
+        assertEquals("Bob", secondName, "Should get Bob from second line")
+        
+        val allNames = GSJson.get(jsonLinesData, "..#.name")
+        assertNotEquals(null, allNames, "Should get all names")
+    }
+    
+    @Test
+    fun testResultType() {
+        val result = GSJson.getResult(selectJson, "age")
+        assertEquals(37, result.int(), "Age should be 37 as int")
+        assertEquals("37", result.string(), "Age should be \"37\" as string")
+        assertTrue(result.exists, "Age should exist")
+    }
+    
+    @Test
+    fun testExistsMethod() {
+        assertTrue(GSJson.exists(selectJson, "age"), "age should exist")
+        assertFalse(GSJson.exists(selectJson, "nonexistent"), "nonexistent should not exist")
+    }
+    
+    @Test
+    fun testReducerModifiers() {
+        // Test data with numeric arrays
+        val numbersJson = """
+        {
+            "scores": [10, 20, 30, 40, 50],
+            "prices": ["1.5", "2.0", "3.5"]
+        }
+        """.trimIndent()
+        
+        val sum = GSJson.get(numbersJson, "scores|@sum")
+        assertEquals(150.0, sum, "Sum should be 150")
+        
+        val avg = GSJson.get(numbersJson, "scores|@avg")
+        assertEquals(30.0, avg, "Average should be 30")
+        
+        val min = GSJson.get(numbersJson, "scores|@min")
+        assertEquals(10.0, min, "Min should be 10")
+        
+        val max = GSJson.get(numbersJson, "scores|@max")
+        assertEquals(50.0, max, "Max should be 50")
+        
+        val count = GSJson.get(numbersJson, "scores|@count")
+        assertEquals(5, count, "Count should be 5")
+        
+        val joined = GSJson.get(numbersJson, "scores|@join")
+        assertEquals("10,20,30,40,50", joined, "Should join with comma")
+        
+        val joinedWithDash = GSJson.get(numbersJson, "scores|@join:-")
+        assertEquals("10-20-30-40-50", joinedWithDash, "Should join with dash")
+        
+        val stringSum = GSJson.get(numbersJson, "prices|@sum")
+        assertEquals(7.0, stringSum, "Sum of string numbers should be 7.0")
+    }
+    
+    @Test
+    fun testReducerOnNestedArrays() {
+        val totalFriendsAge = GSJson.get(selectJson, "friends.[#.age]|@sum")
+        assertEquals(196.0, totalFriendsAge, "Total age of all friends should be 196")
+        
+        val avgFriendAge = GSJson.get(selectJson, "friends.[#.age]|@avg")
+        assertEquals(49.0, avgFriendAge, "Average friend age should be 49")
+        
+        val allFirstNames = GSJson.get(selectJson, "friends.[#.first]|@join")
+        assertEquals("Dale,Roger,Jane,Sjenkie", allFirstNames, "Should join all first names")
     }
 }
