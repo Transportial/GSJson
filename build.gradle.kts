@@ -1,6 +1,3 @@
-import com.vanniktech.maven.publish.GradlePublishPlugin
-import java.util.Base64
-
 plugins {
     kotlin("jvm") version "1.9.23"
     signing
@@ -16,7 +13,7 @@ object Meta {
 }
 
 group = "com.transportial"
-version = "0.1.41"
+version = "0.1.43"
 
 repositories {
     mavenLocal()
@@ -41,8 +38,13 @@ kotlin {
 
 signing {
     // Check environment variables first (for GitHub Actions), then fallback to properties
-    val signingKey = System.getenv("GPG_SIGNING_KEY") ?: findProperty("signing.key")?.toString()
-    val signingPassword = System.getenv("MAVEN_GPG_PASSPHRASE") ?: findProperty("signing.password")?.toString()
+//    val signingKey = System.getenv("GPG_SIGNING_KEY")
+//    val signingKey = findProperty("signing.key")?.toString()
+    val signingKey = System.getenv("GPG_SIGNING_KEY")
+        ?.replace("\r\n", "\n")  // Normalize line endings
+        ?.replace("\\n", "\n")   // Handle escaped newlines
+
+    val signingPassword = System.getenv("MAVEN_GPG_PASSPHRASE")
 
     if (signingKey != null && signingPassword != null) {
         useInMemoryPgpKeys(signingKey, signingPassword)
@@ -98,8 +100,7 @@ mavenPublishing {
     signAllPublications()
 
     // Only configure Maven Central publishing if credentials are available
-    val hasCredentials = (System.getenv("CENTRAL_TOKEN_USERNAME") != null && System.getenv("CENTRAL_TOKEN_PASSWORD") != null) ||
-            (findProperty("mavenCentralUsername") != null && findProperty("mavenCentralPassword") != null)
+    val hasCredentials = (System.getenv("CENTRAL_TOKEN_USERNAME") != null && System.getenv("CENTRAL_TOKEN_PASSWORD") != null)
 
     publishToMavenCentral(automaticRelease = hasCredentials)
 }
