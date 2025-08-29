@@ -11,9 +11,9 @@ jobs:
   release:
     name: Make GitHub release and publish to Maven Central
     environment: release
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
@@ -23,6 +23,7 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
+        cache: gradle
 
 
     - name: Setup Gradle
