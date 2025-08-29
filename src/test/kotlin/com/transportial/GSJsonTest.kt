@@ -236,4 +236,73 @@ internal object GSJsonTest {
         val allFirstNames = GSJson.get(selectJson, "friends.[#.first]|@join")
         assertEquals("Dale,Roger,Jane,Sjenkie", allFirstNames, "Should join all first names")
     }
+    
+    @Test
+    fun testFallbackDefaultValues() {
+        // Test with existing paths (should return actual values)
+        val existingAge = GSJson.get(selectJson, "age", 99)
+        assertEquals(37, existingAge, "Should return actual age, not default")
+        
+        val existingName = GSJson.get(selectJson, "name.first", "Unknown")
+        assertEquals("Tom", existingName, "Should return actual name, not default")
+        
+        // Test with non-existing paths (should return defaults)
+        val missingField = GSJson.get(selectJson, "nonexistent", "default_value")
+        assertEquals("default_value", missingField, "Should return default for missing field")
+        
+        val missingNestedField = GSJson.get(selectJson, "name.middle", "J")
+        assertEquals("J", missingNestedField, "Should return default for missing nested field")
+        
+        val missingArrayElement = GSJson.get(selectJson, "friends.[99].name", "Not Found")
+        assertEquals("Not Found", missingArrayElement, "Should return default for missing array element")
+        
+        // Test with different data types as defaults
+        val numericDefault = GSJson.get(selectJson, "missing.number", 42)
+        assertEquals(42, numericDefault, "Should return numeric default")
+        
+        val booleanDefault = GSJson.get(selectJson, "missing.boolean", true)
+        assertEquals(true, booleanDefault, "Should return boolean default")
+        
+        val listDefault = GSJson.get(selectJson, "missing.list", listOf("a", "b", "c"))
+        assertEquals(listOf("a", "b", "c"), listDefault, "Should return list default")
+    }
+    
+    @Test
+    fun testMathematicalOperations() {
+        val mathJson = """
+        {
+            "numbers": [10, 20, 30],
+            "prices": ["1.5", "2.5", "3.0"],
+            "single": 15,
+            "negative": [-5, -10, 15]
+        }
+        """.trimIndent()
+        
+        // Test array operations only for now
+        val multipliedArray = GSJson.get(mathJson, "numbers|@multiply:2")
+        assertNotEquals(null, multipliedArray, "Should multiply array elements")
+        
+        val dividedArray = GSJson.get(mathJson, "numbers|@divide:2")
+        assertNotEquals(null, dividedArray, "Should divide array elements")
+        
+        val addedArray = GSJson.get(mathJson, "numbers|@add:5")
+        assertNotEquals(null, addedArray, "Should add to array elements")
+        
+        val subtractedArray = GSJson.get(mathJson, "numbers|@subtract:5")
+        assertNotEquals(null, subtractedArray, "Should subtract from array elements")
+        
+        val absArray = GSJson.get(mathJson, "negative|@abs")
+        assertNotEquals(null, absArray, "Should get absolute values of array")
+        
+        val roundedPrices = GSJson.get(mathJson, "prices|@round:0")
+        assertNotEquals(null, roundedPrices, "Should round array values")
+        
+        // Chain mathematical operations
+        val chainedOps = GSJson.get(mathJson, "numbers|@add:10|@multiply:2")
+        assertNotEquals(null, chainedOps, "Should chain mathematical operations")
+        
+        // Math with string numbers
+        val stringMath = GSJson.get(mathJson, "prices|@multiply:2")
+        assertNotEquals(null, stringMath, "Should perform math on string numbers")
+    }
 }

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
+import kotlin.math.*
 
 
 /**
@@ -45,6 +46,25 @@ object GSJson {
     }
     
     /**
+     * Getting JSON value from string and selection path with fallback default
+     *
+     * @param json: as string
+     * @param selection: The selection string
+     * @param defaultValue: Default value to return if path doesn't exist or is null
+     *
+     * @return value according to the selection path or default value
+     */
+    fun get(json: String, selection: String, defaultValue: Any): Any {
+        inputType = DataType.STRING
+        val result = if (isJsonLinesSelection(selection)) {
+            handleJsonLines(json, selection)
+        } else {
+            parseAndGet(objectMapper.readTree(json), selection)
+        }
+        return result ?: defaultValue
+    }
+    
+    /**
      * Getting JSON result from string and selection path
      *
      * @param json: as string
@@ -70,6 +90,21 @@ object GSJson {
         inputType = DataType.GSON
         return parseAndGet(objectMapper.readTree(json.toString()), selection)
     }
+    
+    /**
+     * Getting JSON value from JSONObject and selection path with fallback default
+     *
+     * @param json: as JSONObject
+     * @param selection: The selection string
+     * @param defaultValue: Default value to return if path doesn't exist or is null
+     *
+     * @return value according to the selection path or default value
+     */
+    fun get(json: JSONObject, selection: String, defaultValue: Any): Any {
+        inputType = DataType.GSON
+        val result = parseAndGet(objectMapper.readTree(json.toString()), selection)
+        return result ?: defaultValue
+    }
 
     /**
      * Getting JSON value from JSONArray and selection path
@@ -83,6 +118,21 @@ object GSJson {
         inputType = DataType.GSON
         return parseAndGet(objectMapper.readTree(json.toString()), selection)
     }
+    
+    /**
+     * Getting JSON value from JSONArray and selection path with fallback default
+     *
+     * @param json: as JSONArray
+     * @param selection: The selection string
+     * @param defaultValue: Default value to return if path doesn't exist or is null
+     *
+     * @return value according to the selection path or default value
+     */
+    fun get(json: JSONArray, selection: String, defaultValue: Any): Any {
+        inputType = DataType.GSON
+        val result = parseAndGet(objectMapper.readTree(json.toString()), selection)
+        return result ?: defaultValue
+    }
 
     /**
      * Getting JSON value from JsonNode and selection path
@@ -95,6 +145,21 @@ object GSJson {
     fun get(json: JsonNode, selection: String): Any? {
         inputType = DataType.JACKSON
         return parseAndGet(json, selection)
+    }
+    
+    /**
+     * Getting JSON value from JsonNode and selection path with fallback default
+     *
+     * @param json: JsonNode (Jackson JsonNode)
+     * @param selection: The selection string
+     * @param defaultValue: Default value to return if path doesn't exist or is null
+     *
+     * @return value according to the selection path or default value
+     */
+    fun get(json: JsonNode, selection: String, defaultValue: Any): Any {
+        inputType = DataType.JACKSON
+        val result = parseAndGet(json, selection)
+        return result ?: defaultValue
     }
 
 
@@ -1079,6 +1144,176 @@ object GSJson {
                     objectMapper.valueToTree(joinedString)
                 }
                 else -> json
+            }
+            "@multiply", "@mul" -> when (json) {
+                is ArrayNode -> {
+                    val multiplier = argument?.toDoubleOrNull() ?: 1.0
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> node.asDouble() * multiplier
+                            node.isTextual -> (node.asText().toDoubleOrNull() ?: 0.0) * multiplier
+                            else -> 0.0
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val multiplier = argument?.toDoubleOrNull() ?: 1.0
+                    val value = when {
+                        json.isNumber -> json.asDouble() * multiplier
+                        json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) * multiplier
+                        else -> 0.0
+                    }
+                    objectMapper.valueToTree(value)
+                }
+            }
+            "@divide", "@div" -> when (json) {
+                is ArrayNode -> {
+                    val divisor = argument?.toDoubleOrNull() ?: 1.0
+                    if (divisor == 0.0) return json // Avoid division by zero
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> node.asDouble() / divisor
+                            node.isTextual -> (node.asText().toDoubleOrNull() ?: 0.0) / divisor
+                            else -> 0.0
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val divisor = argument?.toDoubleOrNull() ?: 1.0
+                    if (divisor == 0.0) return json // Avoid division by zero
+                    val value = when {
+                        json.isNumber -> json.asDouble() / divisor
+                        json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) / divisor
+                        else -> 0.0
+                    }
+                    objectMapper.valueToTree(value)
+                }
+            }
+            "@add", "@plus" -> when (json) {
+                is ArrayNode -> {
+                    val addend = argument?.toDoubleOrNull() ?: 0.0
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> node.asDouble() + addend
+                            node.isTextual -> (node.asText().toDoubleOrNull() ?: 0.0) + addend
+                            else -> addend
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val addend = argument?.toDoubleOrNull() ?: 0.0
+                    val value = when {
+                        json.isNumber -> json.asDouble() + addend
+                        json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) + addend
+                        else -> addend
+                    }
+                    objectMapper.valueToTree(value)
+                }
+            }
+            "@subtract", "@sub" -> when (json) {
+                is ArrayNode -> {
+                    val subtrahend = argument?.toDoubleOrNull() ?: 0.0
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> node.asDouble() - subtrahend
+                            node.isTextual -> (node.asText().toDoubleOrNull() ?: 0.0) - subtrahend
+                            else -> -subtrahend
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val subtrahend = argument?.toDoubleOrNull() ?: 0.0
+                    val value = when {
+                        json.isNumber -> json.asDouble() - subtrahend
+                        json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) - subtrahend
+                        else -> -subtrahend
+                    }
+                    objectMapper.valueToTree(value)
+                }
+            }
+            "@power", "@pow" -> when (json) {
+                is ArrayNode -> {
+                    val exponent = argument?.toDoubleOrNull() ?: 1.0
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> node.asDouble().pow(exponent)
+                            node.isTextual -> (node.asText().toDoubleOrNull() ?: 0.0).pow(exponent)
+                            else -> 0.0
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val exponent = argument?.toDoubleOrNull() ?: 1.0
+                    val value = when {
+                        json.isNumber -> json.asDouble().pow(exponent)
+                        json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0).pow(exponent)
+                        else -> 0.0
+                    }
+                    objectMapper.valueToTree(value)
+                }
+            }
+            "@round" -> when (json) {
+                is ArrayNode -> {
+                    val digits = argument?.toIntOrNull() ?: 0
+                    val multiplier = 10.0.pow(digits.toDouble())
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> round(node.asDouble() * multiplier) / multiplier
+                            node.isTextual -> round((node.asText().toDoubleOrNull() ?: 0.0) * multiplier) / multiplier
+                            else -> 0.0
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val digits = argument?.toIntOrNull() ?: 0
+                    val multiplier = 10.0.pow(digits.toDouble())
+                    val value = when {
+                        json.isNumber -> round(json.asDouble() * multiplier) / multiplier
+                        json.isTextual -> round((json.asText().toDoubleOrNull() ?: 0.0) * multiplier) / multiplier
+                        else -> 0.0
+                    }
+                    objectMapper.valueToTree(value)
+                }
+            }
+            "@abs" -> when (json) {
+                is ArrayNode -> {
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> abs(node.asDouble())
+                            node.isTextual -> abs(node.asText().toDoubleOrNull() ?: 0.0)
+                            else -> 0.0
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val value = when {
+                        json.isNumber -> abs(json.asDouble())
+                        json.isTextual -> abs(json.asText().toDoubleOrNull() ?: 0.0)
+                        else -> 0.0
+                    }
+                    objectMapper.valueToTree(value)
+                }
             }
             else -> json
         }

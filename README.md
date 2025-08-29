@@ -147,6 +147,41 @@ GSJson.get(json, "friends.[#.first]|@join: | ")    // Returns: "Dale | Roger | J
 GSJson.get(json, "children|@join:-")               // Returns: "Sara-Alex-Jack"
 ```
 
+### Mathematical Operations
+
+```kotlin
+val numbers = "[10, 20, 30, 40, 50]"
+
+// Basic math operations on arrays
+GSJson.get(numbers, ".|@multiply:2")    // Returns: [20.0, 40.0, 60.0, 80.0, 100.0]
+GSJson.get(numbers, ".|@add:5")         // Returns: [15.0, 25.0, 35.0, 45.0, 55.0]
+GSJson.get(numbers, ".|@subtract:10")   // Returns: [0.0, 10.0, 20.0, 30.0, 40.0]
+GSJson.get(numbers, ".|@divide:2")      // Returns: [5.0, 10.0, 15.0, 20.0, 25.0]
+
+// Advanced math operations
+GSJson.get(numbers, ".|@abs")           // Returns: absolute values
+GSJson.get(numbers, ".|@round:1")       // Returns: rounded to 1 decimal place
+GSJson.get(numbers, ".|@power:2")       // Returns: squared values
+
+// Chain mathematical operations with aggregation
+GSJson.get(json, "friends.[#.age]|@add:5|@sum")  // Add 5 to each age, then sum
+```
+
+### Fallback Default Values
+
+```kotlin
+// Provide defaults for missing or null values
+GSJson.get(json, "name.middle", "J")              // Returns: "J" (field doesn't exist)
+GSJson.get(json, "age", 0)                        // Returns: 37 (field exists)
+GSJson.get(json, "missing.field", "default")      // Returns: "default"
+GSJson.get(json, "friends.[99].name", "Unknown")  // Returns: "Unknown" (index out of bounds)
+
+// Works with all data types
+GSJson.get(json, "missing.number", 42)            // Numeric default
+GSJson.get(json, "missing.boolean", true)         // Boolean default
+GSJson.get(json, "missing.list", listOf("a", "b")) // List default
+```
+
 ### Path Chaining
 
 ```kotlin
