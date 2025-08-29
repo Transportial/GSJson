@@ -42,7 +42,11 @@ signing {
         ?.replace("\r\n", "\n")  // Normalize line endings
         ?.replace("\\n", "\n")   // Handle escaped newlines
 
+    println("Has signing key: ${signingKey != null} and it contains ${signingKey?.length} characters")
+
     val signingPassword = System.getenv("MAVEN_GPG_PASSPHRASE")
+
+    println("Has signing password: ${signingPassword != null} and it contains ${signingPassword?.length} characters")
 
     if (signingKey != null && signingPassword != null) {
         useInMemoryPgpKeys(signingKey, signingPassword)
@@ -99,6 +103,9 @@ mavenPublishing {
 
     // Only configure Maven Central publishing if credentials are available
     val hasCredentials = (System.getenv("CENTRAL_TOKEN_USERNAME") != null && System.getenv("CENTRAL_TOKEN_PASSWORD") != null)
+
+    print("has CENTRAL_TOKEN_USERNAME: ${System.getenv("CENTRAL_TOKEN_USERNAME") != null} and it contains ${System.getenv("CENTRAL_TOKEN_USERNAME")?.length} characters")
+    print("has CENTRAL_TOKEN_PASSWORD: ${System.getenv("CENTRAL_TOKEN_PASSWORD") != null} and it contains ${System.getenv("CENTRAL_TOKEN_PASSWORD")?.length} characters")
 
     println("Has credentials: $hasCredentials")
     publishToMavenCentral(automaticRelease = hasCredentials)
