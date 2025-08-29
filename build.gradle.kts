@@ -99,7 +99,7 @@ mavenPublishing {
     }
 
     // Configure signing
-    signAllPublications()
+//    signAllPublications()
 
     // Only configure Maven Central publishing if credentials are available
     val hasCredentials = (System.getenv("CENTRAL_TOKEN_USERNAME") != null && System.getenv("CENTRAL_TOKEN_PASSWORD") != null)
@@ -108,7 +108,7 @@ mavenPublishing {
     print("has CENTRAL_TOKEN_PASSWORD: ${System.getenv("CENTRAL_TOKEN_PASSWORD") != null} and it contains ${System.getenv("CENTRAL_TOKEN_PASSWORD")?.length} characters")
 
     println("Has credentials: $hasCredentials")
-    publishToMavenCentral(automaticRelease = hasCredentials)
+//    publishToMavenCentral(automaticRelease = hasCredentials)
 }
 
 // Add this task for automatic release
