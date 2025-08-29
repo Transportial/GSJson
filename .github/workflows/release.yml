@@ -32,7 +32,7 @@ jobs:
       if: success()
       # The 'publishToMavenCentral' task is created by the plugin and handles the full lifecycle.
       # It depends on 'test' and 'build', so they will run automatically.
-      run: ./gradlew test publishAndAutoRelease --no-daemon
+      run: ./gradlew  publishToMavenCentral --no-daemon
       env:
         CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
         CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
