@@ -27,7 +27,7 @@ dependencies {
 - **Array Operations**: Access array elements, get length, and extract child paths
 - **Advanced Filtering**: Support for `==`, `!=`, `<`, `<=`, `>`, `>=`, `%` (like), `!%` (not like) operators
 - **Nested Array Queries**: Complex filtering with nested conditions
-- **Built-in Modifiers**: Transform data with modifiers like `@reverse`, `@sum`, `@avg`, `@join`, etc.
+- **Built-in Modifiers**: Transform data with modifiers like `@reverse`, `@sort`, `@sum`, `@avg`, `@join`, etc.
 - **Path Chaining**: Chain operations using the pipe `|` character
 - **JSON Lines Support**: Process newline-delimited JSON with `..` prefix
 - **Enhanced Result Type**: Rich result objects with utility methods
@@ -132,6 +132,24 @@ GSJson.get(json, "name|@pretty")           // Returns: prettified JSON
 GSJson.get(json, "name|@ugly")             // Returns: minified JSON
 ```
 
+### Sorting Operations
+
+```kotlin
+// Basic array sorting
+GSJson.get(json, "children|@sort")         // Returns: ["Alex","Jack","Sara"]
+GSJson.get(json, "children|@sort:desc")    // Returns: ["Sara","Jack","Alex"]
+
+// Sort arrays by object property
+GSJson.get(json, "friends|@sortBy:age")    // Sort by age ascending
+GSJson.get(json, "friends|@sortBy:age:desc")     // Sort by age descending
+GSJson.get(json, "friends|@sortBy:first")        // Sort by first name
+GSJson.get(json, "friends|@sortBy:last:desc")    // Sort by last name descending
+
+// Chain sorting with other operations
+GSJson.get(json, "friends.[age > \"40\"]|@sortBy:age|[#.first]")  // Filter, sort, then extract names
+GSJson.get(json, "friends.[#.age]|@sort:desc|[0]")               // Get highest age
+```
+
 ### Reducer Operations
 
 ```kotlin
@@ -182,7 +200,7 @@ GSJson.get(json, "missing.boolean", true)         // Boolean default
 GSJson.get(json, "missing.list", listOf("a", "b")) // List default
 ```
 
-### Path Chaining
+### Path Chainingpl
 
 ```kotlin
 // Chain multiple operations

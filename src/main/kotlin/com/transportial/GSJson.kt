@@ -1315,6 +1315,53 @@ object GSJson {
                     objectMapper.valueToTree(value)
                 }
             }
+            "@sort" -> when (json) {
+                is ArrayNode -> {
+                    val order = argument?.lowercase() ?: "asc"
+                    val sortedArray = objectMapper.createArrayNode()
+                    val sortedElements = json.sortedWith { a, b ->
+                        val comparison = when {
+                            a.isNumber && b.isNumber -> a.asDouble().compareTo(b.asDouble())
+                            a.isTextual && b.isTextual -> a.asText().compareTo(b.asText())
+                            a.isBoolean && b.isBoolean -> a.asBoolean().compareTo(b.asBoolean())
+                            else -> a.toString().compareTo(b.toString())
+                        }
+                        if (order == "desc") -comparison else comparison
+                    }
+                    sortedElements.forEach { sortedArray.add(it) }
+                    sortedArray
+                }
+                else -> json
+            }
+            "@sortBy" -> when (json) {
+                is ArrayNode -> {
+                    val sortParts = argument?.split(":", limit = 2) ?: listOf()
+                    val property = sortParts.getOrNull(0) ?: ""
+                    val order = sortParts.getOrNull(1)?.lowercase() ?: "asc"
+                    
+                    if (property.isEmpty()) return json
+                    
+                    val sortedArray = objectMapper.createArrayNode()
+                    val sortedElements = json.sortedWith { a, b ->
+                        val aValue = parseAndGet(a, property)
+                        val bValue = parseAndGet(b, property)
+                        
+                        val comparison = when {
+                            aValue is Number && bValue is Number -> 
+                                aValue.toDouble().compareTo(bValue.toDouble())
+                            aValue != null && bValue != null -> 
+                                aValue.toString().compareTo(bValue.toString())
+                            aValue == null && bValue != null -> -1
+                            aValue != null && bValue == null -> 1
+                            else -> 0
+                        }
+                        if (order == "desc") -comparison else comparison
+                    }
+                    sortedElements.forEach { sortedArray.add(it) }
+                    sortedArray
+                }
+                else -> json
+            }
             else -> json
         }
     }

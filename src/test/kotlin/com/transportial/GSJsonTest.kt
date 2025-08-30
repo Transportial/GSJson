@@ -305,4 +305,76 @@ internal object GSJsonTest {
         val stringMath = GSJson.get(mathJson, "prices|@multiply:2")
         assertNotEquals(null, stringMath, "Should perform math on string numbers")
     }
+
+    @Test
+    fun testSortModifiers() {
+        // Test basic array sorting
+        val sortedChildren = GSJson.get(selectJson, "children|@sort")
+        assertEquals("""["Alex","Jack","Sara"]""", sortedChildren, "Children should be sorted alphabetically")
+        
+        val sortedChildrenDesc = GSJson.get(selectJson, "children|@sort:desc")
+        assertEquals("""["Sara","Jack","Alex"]""", sortedChildrenDesc, "Children should be sorted in descending order")
+        
+        // Test numeric array sorting
+        val numericJson = """{"numbers": [30, 10, 20, 5]}"""
+        val sortedNumbers = GSJson.get(numericJson, "numbers|@sort")
+        assertEquals("""[5,10,20,30]""", sortedNumbers, "Numbers should be sorted ascending")
+        
+        val sortedNumbersDesc = GSJson.get(numericJson, "numbers|@sort:desc")
+        assertEquals("""[30,20,10,5]""", sortedNumbersDesc, "Numbers should be sorted descending")
+        
+        // Test mixed type sorting (fallback to string comparison)
+        val mixedJson = """{"mixed": [30, "abc", 10, "xyz"]}"""
+        val sortedMixed = GSJson.get(mixedJson, "mixed|@sort")
+        assertNotEquals(null, sortedMixed, "Mixed array should be sortable")
+        
+        // Test sorting object arrays by property
+        val sortedByAge = GSJson.get(selectJson, "friends|@sortBy:age")
+        val firstFriend = GSJson.get(sortedByAge.toString(), "[0].first")
+        assertEquals("Sjenkie", firstFriend, "First friend after sorting by age should be Sjenkie (age 37)")
+        
+        val sortedByAgeDesc = GSJson.get(selectJson, "friends|@sortBy:age:desc")
+        val oldestFriend = GSJson.get(sortedByAgeDesc.toString(), "[0].first")
+        assertEquals("Roger", oldestFriend, "Oldest friend should be Roger (age 68)")
+        
+        // Test sorting by string property
+        val sortedByFirstName = GSJson.get(selectJson, "friends|@sortBy:first")
+        val firstAlphabetically = GSJson.get(sortedByFirstName.toString(), "[0].first")
+        assertEquals("Dale", firstAlphabetically, "First alphabetically should be Dale")
+        
+        val sortedByFirstNameDesc = GSJson.get(selectJson, "friends|@sortBy:first:desc")
+        val lastAlphabetically = GSJson.get(sortedByFirstNameDesc.toString(), "[0].first")
+        assertEquals("Sjenkie", lastAlphabetically, "Last alphabetically should be Sjenkie")
+        
+        // Test sorting with missing property (should handle gracefully)
+        val sortedByMissing = GSJson.get(selectJson, "friends|@sortBy:missing")
+        assertNotEquals(null, sortedByMissing, "Should handle sorting by missing property")
+        
+        // Test sorting empty property (should return original)
+        val sortedByEmpty = GSJson.get(selectJson, "friends|@sortBy:")
+        assertEquals(GSJson.get(selectJson, "friends"), sortedByEmpty, "Should return original when property is empty")
+        
+        // Test sorting non-array (should return original)
+        val sortedObject = GSJson.get(selectJson, "name|@sort")
+        assertEquals(GSJson.get(selectJson, "name"), sortedObject, "Should return original object when sorting non-array")
+    }
+
+    @Test
+    fun testSortChaining() {
+        // Test chaining sort with other operations
+        val chainedSort = GSJson.get(selectJson, "friends.[age > \"40\"]|@sortBy:age|[#.first]")
+        assertNotEquals(null, chainedSort, "Should chain filtering, sorting, and extraction")
+        
+        // Test getting highest age after sorting
+        val highestAge = GSJson.get(selectJson, "friends.[#.age]|@sort:desc|[0]")
+        assertEquals(68, highestAge, "Highest age should be 68")
+        
+        // Test getting lowest age after sorting
+        val lowestAge = GSJson.get(selectJson, "friends.[#.age]|@sort|[0]")
+        assertEquals(37, lowestAge, "Lowest age should be 37")
+        
+        // Test reverse after sort
+        val reversedSorted = GSJson.get(selectJson, "children|@sort|@reverse")
+        assertEquals("""["Sara","Jack","Alex"]""", reversedSorted, "Should sort then reverse")
+    }
 }
