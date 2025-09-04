@@ -185,6 +185,48 @@ GSJson.get(numbers, ".|@power:2")       // Returns: squared values
 GSJson.get(json, "friends.[#.age]|@add:5|@sum")  // Add 5 to each age, then sum
 ```
 
+### Dynamic Mathematical Operations
+
+Mathematical operations now support both static values and JSON selectors as arguments:
+
+```kotlin
+val dynamicMathJson = """
+{
+  "numbers": [10, 20, 30],
+  "multiplier": 3,
+  "divisor": 2,
+  "addend": 5,
+  "config": {
+    "factor": 4,
+    "precision": 1
+  }
+}
+"""
+
+// Dynamic operations using JSON selectors
+GSJson.get(dynamicMathJson, "numbers|@multiply:multiplier")      // Returns: [30.0, 60.0, 90.0]
+GSJson.get(dynamicMathJson, "numbers|@divide:divisor")           // Returns: [5.0, 10.0, 15.0]
+GSJson.get(dynamicMathJson, "numbers|@add:addend")               // Returns: [15.0, 25.0, 35.0]
+GSJson.get(dynamicMathJson, "numbers|@subtract:addend")          // Returns: [5.0, 15.0, 25.0]
+GSJson.get(dynamicMathJson, "numbers|@power:divisor")            // Returns: [100.0, 400.0, 900.0]
+
+// Nested path selectors
+GSJson.get(dynamicMathJson, "numbers|@multiply:config.factor")   // Returns: [40.0, 80.0, 120.0]
+GSJson.get(dynamicMathJson, "numbers|@round:config.precision")   // Returns: rounded values
+
+// Chain dynamic and static operations
+GSJson.get(dynamicMathJson, "numbers|@add:addend|@multiply:2")   // Add dynamic value, then multiply by 2
+GSJson.get(dynamicMathJson, "numbers|@multiply:config.factor|@divide:divisor")  // Dynamic multiply then dynamic divide
+```
+
+**Supported dynamic math operations:**
+- `@multiply:selector` / `@mul:selector` - Multiply by value from JSON selector
+- `@divide:selector` / `@div:selector` - Divide by value from JSON selector  
+- `@add:selector` / `@plus:selector` - Add value from JSON selector
+- `@subtract:selector` / `@sub:selector` - Subtract value from JSON selector
+- `@power:selector` / `@pow:selector` - Raise to power from JSON selector
+- `@round:selector` - Round to precision from JSON selector
+
 ### Fallback Default Values
 
 ```kotlin

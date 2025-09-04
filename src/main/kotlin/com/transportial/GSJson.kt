@@ -192,7 +192,7 @@ object GSJson {
                     currentSelection = previousSelections[previousSelections.size - getBackReferencesCount(instruction)]
                 }
                 isModifierInstruction(instruction) -> {
-                    currentSelection = applyModifier(currentSelection, instruction)
+                    currentSelection = applyModifier(currentSelection, instruction, contextNodes, previousArrayLevel)
                 }
                 else -> {
                     currentSelection = select(
@@ -999,9 +999,93 @@ object GSJson {
     }
     
     /**
+     * Resolve an argument that can be either a static value or a JSON selector
+     */
+    private fun resolveArgument(
+        json: JsonNode, 
+        argument: String?, 
+        contextNodes: List<JsonNode> = listOf()
+    ): Double? {
+        if (argument == null) return null
+        
+        // Try to parse as a static number first
+        argument.toDoubleOrNull()?.let { return it }
+        
+        // If not a number, treat as a JSON selector from the root context
+        val rootContext = if (contextNodes.isNotEmpty()) contextNodes.first() else json
+        val result = try {
+            // Use simple path resolution without modifiers to avoid recursion
+            selectSimplePath(rootContext, argument)
+        } catch (e: Exception) {
+            null
+        }
+        return when (result) {
+            is Number -> result.toDouble()
+            is String -> result.toDoubleOrNull()
+            else -> null
+        }
+    }
+
+    /**
+     * Simple path selection without modifiers to avoid recursion in argument resolution
+     */
+    private fun selectSimplePath(json: JsonNode, path: String): Any? {
+        if (isConstantInstruction(path)) return toConstant(path)
+        
+        val instructions = path.split(".")
+        var current = json
+        
+        for (instruction in instructions) {
+            current = when (current) {
+                is ObjectNode -> current.get(instruction) ?: return null
+                is ArrayNode -> {
+                    val index = instruction.toIntOrNull() ?: 0
+                    if (current.has(index)) current.get(index) else return null
+                }
+                else -> return null
+            }
+        }
+        
+        return getValue(current)
+    }
+
+    /**
+     * Resolve an integer argument that can be either a static value or a JSON selector
+     */
+    private fun resolveIntArgument(
+        json: JsonNode, 
+        argument: String?, 
+        contextNodes: List<JsonNode> = listOf()
+    ): Int? {
+        if (argument == null) return null
+        
+        // Try to parse as a static number first
+        argument.toIntOrNull()?.let { return it }
+        
+        // If not a number, treat as a JSON selector from the root context
+        val rootContext = if (contextNodes.isNotEmpty()) contextNodes.first() else json
+        val result = try {
+            // Use simple path resolution without modifiers to avoid recursion
+            selectSimplePath(rootContext, argument)
+        } catch (e: Exception) {
+            null
+        }
+        return when (result) {
+            is Number -> result.toInt()
+            is String -> result.toIntOrNull()
+            else -> null
+        }
+    }
+
+    /**
      * Apply built-in modifiers
      */
-    private fun applyModifier(json: JsonNode, instruction: String): JsonNode {
+    private fun applyModifier(
+        json: JsonNode, 
+        instruction: String, 
+        contextNodes: List<JsonNode> = listOf(),
+        previousArrayLevel: Int = 0
+    ): JsonNode {
         val parts = instruction.split(":", limit = 2)
         val modifier = parts[0]
         val argument = if (parts.size > 1) parts[1] else null
@@ -1147,7 +1231,7 @@ object GSJson {
             }
             "@multiply", "@mul" -> when (json) {
                 is ArrayNode -> {
-                    val multiplier = argument?.toDoubleOrNull() ?: 1.0
+                    val multiplier = resolveArgument(json, argument, contextNodes) ?: 1.0
                     val resultArray = objectMapper.createArrayNode()
                     json.forEach { node ->
                         val value = when {
@@ -1160,7 +1244,7 @@ object GSJson {
                     resultArray
                 }
                 else -> {
-                    val multiplier = argument?.toDoubleOrNull() ?: 1.0
+                    val multiplier = resolveArgument(json, argument, contextNodes) ?: 1.0
                     val value = when {
                         json.isNumber -> json.asDouble() * multiplier
                         json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) * multiplier
@@ -1171,7 +1255,7 @@ object GSJson {
             }
             "@divide", "@div" -> when (json) {
                 is ArrayNode -> {
-                    val divisor = argument?.toDoubleOrNull() ?: 1.0
+                    val divisor = resolveArgument(json, argument, contextNodes) ?: 1.0
                     if (divisor == 0.0) return json // Avoid division by zero
                     val resultArray = objectMapper.createArrayNode()
                     json.forEach { node ->
@@ -1185,7 +1269,7 @@ object GSJson {
                     resultArray
                 }
                 else -> {
-                    val divisor = argument?.toDoubleOrNull() ?: 1.0
+                    val divisor = resolveArgument(json, argument, contextNodes) ?: 1.0
                     if (divisor == 0.0) return json // Avoid division by zero
                     val value = when {
                         json.isNumber -> json.asDouble() / divisor
@@ -1197,7 +1281,7 @@ object GSJson {
             }
             "@add", "@plus" -> when (json) {
                 is ArrayNode -> {
-                    val addend = argument?.toDoubleOrNull() ?: 0.0
+                    val addend = resolveArgument(json, argument, contextNodes) ?: 0.0
                     val resultArray = objectMapper.createArrayNode()
                     json.forEach { node ->
                         val value = when {
@@ -1210,7 +1294,7 @@ object GSJson {
                     resultArray
                 }
                 else -> {
-                    val addend = argument?.toDoubleOrNull() ?: 0.0
+                    val addend = resolveArgument(json, argument, contextNodes) ?: 0.0
                     val value = when {
                         json.isNumber -> json.asDouble() + addend
                         json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) + addend
@@ -1221,7 +1305,7 @@ object GSJson {
             }
             "@subtract", "@sub" -> when (json) {
                 is ArrayNode -> {
-                    val subtrahend = argument?.toDoubleOrNull() ?: 0.0
+                    val subtrahend = resolveArgument(json, argument, contextNodes) ?: 0.0
                     val resultArray = objectMapper.createArrayNode()
                     json.forEach { node ->
                         val value = when {
@@ -1234,7 +1318,7 @@ object GSJson {
                     resultArray
                 }
                 else -> {
-                    val subtrahend = argument?.toDoubleOrNull() ?: 0.0
+                    val subtrahend = resolveArgument(json, argument, contextNodes) ?: 0.0
                     val value = when {
                         json.isNumber -> json.asDouble() - subtrahend
                         json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) - subtrahend
@@ -1245,7 +1329,7 @@ object GSJson {
             }
             "@power", "@pow" -> when (json) {
                 is ArrayNode -> {
-                    val exponent = argument?.toDoubleOrNull() ?: 1.0
+                    val exponent = resolveArgument(json, argument, contextNodes) ?: 1.0
                     val resultArray = objectMapper.createArrayNode()
                     json.forEach { node ->
                         val value = when {
@@ -1258,7 +1342,7 @@ object GSJson {
                     resultArray
                 }
                 else -> {
-                    val exponent = argument?.toDoubleOrNull() ?: 1.0
+                    val exponent = resolveArgument(json, argument, contextNodes) ?: 1.0
                     val value = when {
                         json.isNumber -> json.asDouble().pow(exponent)
                         json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0).pow(exponent)
@@ -1269,7 +1353,7 @@ object GSJson {
             }
             "@round" -> when (json) {
                 is ArrayNode -> {
-                    val digits = argument?.toIntOrNull() ?: 0
+                    val digits = resolveIntArgument(json, argument, contextNodes) ?: 0
                     val multiplier = 10.0.pow(digits.toDouble())
                     val resultArray = objectMapper.createArrayNode()
                     json.forEach { node ->
@@ -1283,7 +1367,7 @@ object GSJson {
                     resultArray
                 }
                 else -> {
-                    val digits = argument?.toIntOrNull() ?: 0
+                    val digits = resolveIntArgument(json, argument, contextNodes) ?: 0
                     val multiplier = 10.0.pow(digits.toDouble())
                     val value = when {
                         json.isNumber -> round(json.asDouble() * multiplier) / multiplier

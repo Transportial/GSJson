@@ -377,4 +377,158 @@ internal object GSJsonTest {
         val reversedSorted = GSJson.get(selectJson, "children|@sort|@reverse")
         assertEquals("""["Sara","Jack","Alex"]""", reversedSorted, "Should sort then reverse")
     }
+
+    @Test
+    fun testDynamicMathOperations() {
+        val dynamicMathJson = """
+        {
+            "numbers": [10, 20, 30],
+            "multiplier": 3,
+            "divisor": 2,
+            "addend": 5,
+            "subtrahend": 8,
+            "exponent": 2,
+            "precision": 1,
+            "config": {
+                "factor": 4,
+                "offset": 15
+            }
+        }
+        """.trimIndent()
+        
+        // Test dynamic multiplication
+        val dynamicMul = GSJson.get(dynamicMathJson, "numbers|@multiply:multiplier")
+        assertEquals("""[30.0,60.0,90.0]""", dynamicMul, "Should multiply by dynamic value")
+        
+        // Test dynamic division
+        val dynamicDiv = GSJson.get(dynamicMathJson, "numbers|@divide:divisor")
+        assertEquals("""[5.0,10.0,15.0]""", dynamicDiv, "Should divide by dynamic value")
+        
+        // Test dynamic addition
+        val dynamicAdd = GSJson.get(dynamicMathJson, "numbers|@add:addend")
+        assertEquals("""[15.0,25.0,35.0]""", dynamicAdd, "Should add dynamic value")
+        
+        // Test dynamic subtraction
+        val dynamicSub = GSJson.get(dynamicMathJson, "numbers|@subtract:subtrahend")
+        assertEquals("""[2.0,12.0,22.0]""", dynamicSub, "Should subtract dynamic value")
+        
+        // Test dynamic power
+        val dynamicPow = GSJson.get(dynamicMathJson, "numbers|@power:exponent")
+        assertEquals("""[100.0,400.0,900.0]""", dynamicPow, "Should raise to dynamic power")
+        
+        // Test dynamic rounding
+        val dynamicRound = GSJson.get(dynamicMathJson, "numbers|@divide:3|@round:precision")
+        assertEquals("""[3.3,6.7,10.0]""", dynamicRound, "Should round to dynamic precision")
+        
+        // Test nested path for math operations
+        val nestedMath = GSJson.get(dynamicMathJson, "numbers|@multiply:config.factor")
+        assertEquals("""[40.0,80.0,120.0]""", nestedMath, "Should multiply by nested config value")
+        
+        // Test chaining dynamic operations
+        val chainedDynamic = GSJson.get(dynamicMathJson, "numbers|@add:config.offset|@divide:divisor")
+        assertEquals("""[12.5,17.5,22.5]""", chainedDynamic, "Should chain dynamic operations")
+    }
+
+    @Test
+    fun testDynamicMathWithSingleValues() {
+        val singleValueJson = """
+        {
+            "value": 50,
+            "multiplier": 1.5,
+            "divisor": 2.5,
+            "addend": 25,
+            "subtrahend": 10,
+            "exponent": 3,
+            "precision": 2
+        }
+        """.trimIndent()
+        
+        // Test dynamic operations on single values
+        val mulResult = GSJson.get(singleValueJson, "value|@multiply:multiplier")
+        assertEquals(75.0, mulResult, "Single value multiply should work")
+        
+        val divResult = GSJson.get(singleValueJson, "value|@divide:divisor")
+        assertEquals(20.0, divResult, "Single value divide should work")
+        
+        val addResult = GSJson.get(singleValueJson, "value|@add:addend")
+        assertEquals(75.0, addResult, "Single value add should work")
+        
+        val subResult = GSJson.get(singleValueJson, "value|@subtract:subtrahend")
+        assertEquals(40.0, subResult, "Single value subtract should work")
+        
+        val powResult = GSJson.get(singleValueJson, "value|@power:exponent")
+        assertEquals(125000.0, powResult, "Single value power should work")
+    }
+
+    @Test
+    fun testDynamicMathWithStringNumbers() {
+        val stringNumbersJson = """
+        {
+            "stringNumbers": ["10.5", "20.7", "30.2"],
+            "multiplier": "2.5",
+            "factor": 3
+        }
+        """.trimIndent()
+        
+        // Test dynamic math on string numbers
+        val stringMul = GSJson.get(stringNumbersJson, "stringNumbers|@multiply:multiplier")
+        assertEquals("""[26.25,51.75,75.5]""", stringMul, "Should work with string number arguments")
+        
+        val mixedMul = GSJson.get(stringNumbersJson, "stringNumbers|@multiply:factor")
+        assertEquals("""[31.5,62.1,90.6]""", mixedMul, "Should work with mixed string/numeric selectors")
+    }
+
+    @Test
+    fun testDynamicMathEdgeCases() {
+        val edgeCaseJson = """
+        {
+            "numbers": [10, 20, 30],
+            "zero": 0,
+            "negative": -5,
+            "decimal": 2.5,
+            "missing": null,
+            "nonNumeric": "not_a_number"
+        }
+        """.trimIndent()
+        
+        // Test division by zero (should return original)
+        val divByZero = GSJson.get(edgeCaseJson, "numbers|@divide:zero")
+        assertEquals("""[10,20,30]""", divByZero, "Division by zero should return original")
+        
+        // Test with negative numbers
+        val negativeOp = GSJson.get(edgeCaseJson, "numbers|@multiply:negative")
+        assertEquals("""[-50.0,-100.0,-150.0]""", negativeOp, "Should handle negative multipliers")
+        
+        // Test with decimal values
+        val decimalOp = GSJson.get(edgeCaseJson, "numbers|@divide:decimal")
+        assertEquals("""[4.0,8.0,12.0]""", decimalOp, "Should handle decimal divisors")
+        
+        // Test with non-existent selector (should fallback to default)
+        val missingSelector = GSJson.get(edgeCaseJson, "numbers|@multiply:nonExistentField")
+        assertEquals("""[10.0,20.0,30.0]""", missingSelector, "Should use default (1.0) for missing selector")
+        
+        // Test with non-numeric selector (should fallback to default)
+        val nonNumericSelector = GSJson.get(edgeCaseJson, "numbers|@add:nonNumeric")
+        assertEquals("""[10.0,20.0,30.0]""", nonNumericSelector, "Should use default (0.0) for non-numeric selector")
+    }
+
+    @Test
+    fun testDynamicMathWithArraySelectors() {
+        val arrayMathJson = """
+        {
+            "data": [
+                {"values": [1, 2, 3], "multiplier": 10},
+                {"values": [4, 5, 6], "multiplier": 20}
+            ],
+            "globalMultiplier": 3
+        }
+        """.trimIndent()
+        
+        // Test accessing values from different array contexts
+        val firstValues = GSJson.get(arrayMathJson, "data.[0].values|@multiply:globalMultiplier")
+        assertEquals("""[3.0,6.0,9.0]""", firstValues, "Should multiply first array by global multiplier")
+        
+        val secondValues = GSJson.get(arrayMathJson, "data.[1].values|@multiply:globalMultiplier")
+        assertEquals("""[12.0,15.0,18.0]""", secondValues, "Should multiply second array by global multiplier")
+    }
 }
