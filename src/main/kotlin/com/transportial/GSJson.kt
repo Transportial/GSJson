@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
+import kotlin.math.*
+
 
 /**
  * Getting/Setting mapping language in JSON
@@ -36,7 +38,44 @@ object GSJson {
      */
     fun get(json: String, selection: String): Any? {
         inputType = DataType.STRING
-        return parseAndGet(objectMapper.readTree(json), selection)
+        return if (isJsonLinesSelection(selection)) {
+            handleJsonLines(json, selection)
+        } else {
+            parseAndGet(objectMapper.readTree(json), selection)
+        }
+    }
+    
+    /**
+     * Getting JSON value from string and selection path with fallback default
+     *
+     * @param json: as string
+     * @param selection: The selection string
+     * @param defaultValue: Default value to return if path doesn't exist or is null
+     *
+     * @return value according to the selection path or default value
+     */
+    fun get(json: String, selection: String, defaultValue: Any): Any {
+        inputType = DataType.STRING
+        val result = if (isJsonLinesSelection(selection)) {
+            handleJsonLines(json, selection)
+        } else {
+            parseAndGet(objectMapper.readTree(json), selection)
+        }
+        return result ?: defaultValue
+    }
+    
+    /**
+     * Getting JSON result from string and selection path
+     *
+     * @param json: as string
+     * @param selection: The selection string
+     *
+     * @return GSJsonResult with enhanced functionality
+     */
+    fun getResult(json: String, selection: String): GSJsonResult {
+        inputType = DataType.STRING
+        val result = parseAndGet(objectMapper.readTree(json), selection)
+        return createResult(result)
     }
 
     /**
@@ -51,6 +90,21 @@ object GSJson {
         inputType = DataType.GSON
         return parseAndGet(objectMapper.readTree(json.toString()), selection)
     }
+    
+    /**
+     * Getting JSON value from JSONObject and selection path with fallback default
+     *
+     * @param json: as JSONObject
+     * @param selection: The selection string
+     * @param defaultValue: Default value to return if path doesn't exist or is null
+     *
+     * @return value according to the selection path or default value
+     */
+    fun get(json: JSONObject, selection: String, defaultValue: Any): Any {
+        inputType = DataType.GSON
+        val result = parseAndGet(objectMapper.readTree(json.toString()), selection)
+        return result ?: defaultValue
+    }
 
     /**
      * Getting JSON value from JSONArray and selection path
@@ -64,6 +118,21 @@ object GSJson {
         inputType = DataType.GSON
         return parseAndGet(objectMapper.readTree(json.toString()), selection)
     }
+    
+    /**
+     * Getting JSON value from JSONArray and selection path with fallback default
+     *
+     * @param json: as JSONArray
+     * @param selection: The selection string
+     * @param defaultValue: Default value to return if path doesn't exist or is null
+     *
+     * @return value according to the selection path or default value
+     */
+    fun get(json: JSONArray, selection: String, defaultValue: Any): Any {
+        inputType = DataType.GSON
+        val result = parseAndGet(objectMapper.readTree(json.toString()), selection)
+        return result ?: defaultValue
+    }
 
     /**
      * Getting JSON value from JsonNode and selection path
@@ -76,6 +145,21 @@ object GSJson {
     fun get(json: JsonNode, selection: String): Any? {
         inputType = DataType.JACKSON
         return parseAndGet(json, selection)
+    }
+    
+    /**
+     * Getting JSON value from JsonNode and selection path with fallback default
+     *
+     * @param json: JsonNode (Jackson JsonNode)
+     * @param selection: The selection string
+     * @param defaultValue: Default value to return if path doesn't exist or is null
+     *
+     * @return value according to the selection path or default value
+     */
+    fun get(json: JsonNode, selection: String, defaultValue: Any): Any {
+        inputType = DataType.JACKSON
+        val result = parseAndGet(json, selection)
+        return result ?: defaultValue
     }
 
 
@@ -107,7 +191,9 @@ object GSJson {
                 isBackReference(instruction) -> {
                     currentSelection = previousSelections[previousSelections.size - getBackReferencesCount(instruction)]
                 }
-
+                isModifierInstruction(instruction) -> {
+                    currentSelection = applyModifier(currentSelection, instruction, contextNodes, previousArrayLevel)
+                }
                 else -> {
                     currentSelection = select(
                         currentSelection,
@@ -390,7 +476,21 @@ object GSJson {
                         contextNodes,
                         previousArrayLevel
                     )
-
+                    isCountInstruction(instruction) -> {
+                        objectMapper.valueToTree(json.size())
+                    }
+                    isAllElementsInstruction(instruction) -> {
+                        val childPath = instruction.removePrefix("#.")
+                        val resultArray = objectMapper.createArrayNode()
+                        json.forEach { element ->
+                            val childValue = parseAndGet(element, childPath, contextNodes, previousArrayLevel)
+                            when (childValue) {
+                                is JsonNode -> resultArray.add(childValue)
+                                else -> resultArray.add(objectMapper.valueToTree(childValue) as JsonNode)
+                            }
+                        }
+                        resultArray
+                    }
                     json.has(instruction) -> json.get(instruction)
                     else -> json
                 }
@@ -398,7 +498,8 @@ object GSJson {
                 is ObjectNode -> {
                     when {
                         json.has(instruction) -> json.get(instruction)
-                        else -> json
+                        isWildcardInstruction(instruction) -> selectWildcardMatch(json, instruction)
+                        else -> objectMapper.missingNode()
                     }
                 }
 
@@ -415,6 +516,7 @@ object GSJson {
      */
     private fun getValue(json: JsonNode): Any? {
         return when (json) {
+            is MissingNode -> null
             is IntNode -> json.intValue()
             is DoubleNode -> json.doubleValue()
             is BooleanNode -> json.booleanValue()
@@ -521,13 +623,23 @@ object GSJson {
 
             copiedSelection = copiedSelection.replace(match.value, reference)
         }
+        
+        // Protect modifier arguments from being split
+        val modifierReferenceRegex = "@\\w+:[^|]*"
+        val modifierReferences = mutableMapOf<String, Any>()
+        modifierReferenceRegex.toRegex().findAll(copiedSelection).forEach { match ->
+            val reference = "modifier${HelperUtils.number(10)}"
+            modifierReferences[reference] = match.value
+
+            copiedSelection = copiedSelection.replace(match.value, reference)
+        }
 
 
         val dotRegex = "(?<!\\\\)\\Q.\\E".toRegex()
-        val dashRegex = "(?<!\\\\)\\Q|\\E".toRegex()
+        val pipeRegex = "(?<!\\\\)\\Q|\\E".toRegex()
 
         return dotRegex.split(copiedSelection)
-            .flatMap { dashRegex.split(it) }
+            .flatMap { pipeRegex.split(it) }
             .map {
                 var instruction = it.replace("\\.", ".")
                     .replace("\\|", "|")
@@ -539,30 +651,62 @@ object GSJson {
                 functionalReferences.forEach {
                     instruction = instruction.replace(it.key, it.value.toString())
                 }
+                
+                modifierReferences.forEach {
+                    instruction = instruction.replace(it.key, it.value.toString())
+                }
 
                 instruction
             }
     }
 
-
+    /**
+     * Select element within an array
+     */
     private fun selectArrayElement(
         jsonArray: ArrayNode,
         instruction: String,
         contextNodes: List<JsonNode> = listOf(),
         default: Int = 0
     ): JsonNode {
+        val cleanedInstruction = cleanInstruction(instruction)
+        
+        if (cleanedInstruction == "#") {
+            return objectMapper.valueToTree(jsonArray.size())
+        }
+        
+        if (cleanedInstruction.startsWith("#.")) {
+            val childPath = cleanedInstruction.removePrefix("#.")
+            val resultArray = objectMapper.createArrayNode()
+            jsonArray.forEach { element ->
+                val childValue = parseAndGet(element, childPath, contextNodes, default)
+                when (childValue) {
+                    is JsonNode -> resultArray.add(childValue)
+                    else -> resultArray.add(objectMapper.valueToTree(childValue) as JsonNode)
+                }
+            }
+            return resultArray
+        }
 
-        if (isComparisonInstruction(instruction)) {
-            return objectMapper.createArrayNode()
-                .addAll(jsonArray.filter { compareSelectors(it, instruction, contextNodes, default) })
+        if (isComparisonInstruction(cleanedInstruction)) {
+            val filteredArray = objectMapper.createArrayNode()
+                .addAll(jsonArray.filter { compareSelectors(it, cleanedInstruction, contextNodes, default) })
+            return filteredArray
+        }
+        
+        if (isMultiQueryInstruction(cleanedInstruction)) {
+            return handleMultiQuery(jsonArray, cleanedInstruction, contextNodes, default)
         }
 
         val jsonIndex = getJsonArrayIndex(jsonArray, instruction, contextNodes, default)
         if (jsonArray.has(jsonIndex)) return jsonArray.get(jsonIndex)
 
-        return jsonArray
+        return objectMapper.missingNode()
     }
 
+    /**
+     * Get the index selection within the array
+     */
     private fun getJsonArrayIndex(
         jsonArray: ArrayNode,
         instruction: String,
@@ -583,7 +727,7 @@ object GSJson {
 
 
     /**
-     * Compare a comparison selector according to different
+     * Compare a comparison selector according to different operators
      */
     private fun compareSelectors(
         jsonNode: JsonNode,
@@ -591,29 +735,48 @@ object GSJson {
         contextNodes: List<JsonNode> = listOf(),
         previousArrayLevel: Int = 0
     ): Boolean {
-
         val matches = "([^\\s]+)".toRegex().findAll(cleanInstruction(instruction))
         val leftSide = matches.firstOrNull()?.value?.trim() ?: ""
         val comparison = matches.elementAtOrNull(1)?.value?.trim() ?: "=="
         val rightSide = matches.elementAtOrNull(2)?.value?.trim() ?: ""
 
+        val leftValue = parseAndGet(jsonNode, leftSide, contextNodes, previousArrayLevel)
+        val rightValue = parseAndGet(jsonNode, rightSide, contextNodes, previousArrayLevel)
+        
+        val leftStr = leftValue.toString()
+        val rightStr = rightValue.toString()
 
         return when (comparison) {
-            "==" -> parseAndGet(jsonNode, leftSide, contextNodes, previousArrayLevel).toString() == parseAndGet(
-                jsonNode,
-                rightSide,
-                contextNodes,
-                previousArrayLevel
-            ).toString()
-
-            "!=" -> parseAndGet(jsonNode, leftSide, contextNodes, previousArrayLevel).toString() != parseAndGet(
-                jsonNode,
-                rightSide,
-                contextNodes,
-                previousArrayLevel
-            ).toString()
-
+            "==" -> leftStr == rightStr
+            "!=" -> leftStr != rightStr
+            "<" -> compareNumericOrString(leftValue, rightValue) < 0
+            "<=" -> compareNumericOrString(leftValue, rightValue) <= 0
+            ">" -> compareNumericOrString(leftValue, rightValue) > 0
+            ">=" -> compareNumericOrString(leftValue, rightValue) >= 0
+            "%" -> leftStr.matches(wildcardToRegex(rightStr))
+            "!%" -> !leftStr.matches(wildcardToRegex(rightStr))
             else -> false
+        }
+    }
+
+    /**
+     * Compare values numerically if possible, otherwise as strings
+     */
+    private fun compareNumericOrString(left: Any?, right: Any?): Int {
+        return try {
+            val leftNum = when (left) {
+                is Number -> left.toDouble()
+                is String -> left.toDouble()
+                else -> left.toString().toDouble()
+            }
+            val rightNum = when (right) {
+                is Number -> right.toDouble()
+                is String -> right.toDouble()
+                else -> right.toString().toDouble()
+            }
+            leftNum.compareTo(rightNum)
+        } catch (e: Exception) {
+            left.toString().compareTo(right.toString())
         }
     }
 
@@ -685,5 +848,660 @@ object GSJson {
 
     private fun isFunctionalInstruction(mappingPart: String): Boolean {
         return mappingPart.startsWith("(") && mappingPart.endsWith(")")
+    }
+
+    /**
+     * Check if instruction contains wildcards (* or ?)
+     */
+    private fun isWildcardInstruction(instruction: String): Boolean {
+        return instruction.contains('*') || instruction.contains('?')
+    }
+
+    /**
+     * Check if instruction is asking for count (#)
+     */
+    private fun isCountInstruction(instruction: String): Boolean {
+        return instruction == "#"
+    }
+
+    /**
+     * Check if instruction is asking for all elements with a child path (#.something)
+     */
+    private fun isAllElementsInstruction(instruction: String): Boolean {
+        return instruction.startsWith("#.") && instruction.length > 2
+    }
+
+    /**
+     * Select matching keys using wildcard patterns
+     */
+    private fun selectWildcardMatch(json: ObjectNode, pattern: String): JsonNode {
+        val regex = wildcardToRegex(pattern)
+        val matchingKeys = json.fieldNames().asSequence().filter { key ->
+            regex.matches(key)
+        }.toList()
+        
+        return when (matchingKeys.size) {
+            0 -> objectMapper.createObjectNode()
+            1 -> json.get(matchingKeys.first())
+            else -> {
+                val resultArray = objectMapper.createArrayNode()
+                matchingKeys.forEach { key ->
+                    resultArray.add(json.get(key))
+                }
+                resultArray
+            }
+        }
+    }
+
+    /**
+     * Convert wildcard pattern to regex
+     */
+    private fun wildcardToRegex(pattern: String): Regex {
+        val escaped = pattern
+            .replace(".", "\\.")
+            .replace("*", ".*")
+            .replace("?", ".")
+        return "^$escaped$".toRegex()
+    }
+
+    /**
+     * Check if instruction contains multiple query patterns (for nested array queries)
+     */
+    private fun isMultiQueryInstruction(instruction: String): Boolean {
+        return instruction.contains("#(") && instruction.endsWith(")#")
+    }
+
+    /**
+     * Handle multiple query patterns like friends.#(nets.#(=="fb"))#.first
+     */
+    private fun handleMultiQuery(
+        jsonArray: ArrayNode,
+        instruction: String,
+        contextNodes: List<JsonNode>,
+        previousArrayLevel: Int
+    ): JsonNode {
+        val queryPattern = instruction.removePrefix("#(").removeSuffix(")#")
+        val filteredArray = objectMapper.createArrayNode()
+        
+        jsonArray.forEach { element ->
+            if (evaluateNestedQuery(element, queryPattern, contextNodes, previousArrayLevel)) {
+                filteredArray.add(element)
+            }
+        }
+        
+        return filteredArray
+    }
+
+    /**
+     * Evaluate nested queries recursively
+     */
+    private fun evaluateNestedQuery(
+        element: JsonNode,
+        query: String,
+        contextNodes: List<JsonNode>,
+        previousArrayLevel: Int
+    ): Boolean {
+        return if (query.contains("#(")) {
+            val nestedPath = query.substringBefore(".#(")
+            val nestedQuery = query.substringAfter(".#(").substringBeforeLast(")")
+            
+            val nestedArray = parseAndGet(element, nestedPath, contextNodes, previousArrayLevel)
+            when (nestedArray) {
+                is ArrayNode -> nestedArray.any { nestedElement ->
+                    evaluateNestedQuery(nestedElement, nestedQuery, contextNodes, previousArrayLevel)
+                }
+                else -> false
+            }
+        } else {
+            compareSelectors(element, query, contextNodes, previousArrayLevel)
+        }
+    }
+    
+    /**
+     * Create a GSJsonResult from a value
+     */
+    private fun createResult(value: Any?): GSJsonResult {
+        val type = when (value) {
+            is String -> GSJsonResult.ResultType.STRING
+            is Number -> GSJsonResult.ResultType.NUMBER
+            is Boolean -> GSJsonResult.ResultType.BOOLEAN
+            is ArrayNode, is List<*> -> GSJsonResult.ResultType.ARRAY
+            is ObjectNode -> GSJsonResult.ResultType.OBJECT
+            null -> GSJsonResult.ResultType.NULL
+            else -> GSJsonResult.ResultType.STRING
+        }
+        
+        val raw = value?.toString() ?: "null"
+        val exists = value != null
+        
+        return GSJsonResult(value, raw, type, exists)
+    }
+    
+    /**
+     * Check if a path exists in the JSON
+     */
+    fun exists(json: String, selection: String): Boolean {
+        return try {
+            inputType = DataType.STRING
+            val jsonTree = objectMapper.readTree(json)
+            val result = parseAndGet(jsonTree, selection)
+            result != null && result.toString() != "null" && result != MissingNode.getInstance()
+        } catch (e: Exception) {
+            false
+        }
+    }
+    
+    /**
+     * Check if instruction is a modifier (starts with @)
+     */
+    private fun isModifierInstruction(instruction: String): Boolean {
+        return instruction.startsWith("@")
+    }
+    
+    /**
+     * Resolve an argument that can be either a static value or a JSON selector
+     */
+    private fun resolveArgument(
+        json: JsonNode, 
+        argument: String?, 
+        contextNodes: List<JsonNode> = listOf()
+    ): Double? {
+        if (argument == null) return null
+        
+        // Try to parse as a static number first
+        argument.toDoubleOrNull()?.let { return it }
+        
+        // If not a number, treat as a JSON selector from the root context
+        val rootContext = if (contextNodes.isNotEmpty()) contextNodes.first() else json
+        val result = try {
+            // Use simple path resolution without modifiers to avoid recursion
+            selectSimplePath(rootContext, argument)
+        } catch (e: Exception) {
+            null
+        }
+        return when (result) {
+            is Number -> result.toDouble()
+            is String -> result.toDoubleOrNull()
+            else -> null
+        }
+    }
+
+    /**
+     * Simple path selection without modifiers to avoid recursion in argument resolution
+     */
+    private fun selectSimplePath(json: JsonNode, path: String): Any? {
+        if (isConstantInstruction(path)) return toConstant(path)
+        
+        val instructions = path.split(".")
+        var current = json
+        
+        for (instruction in instructions) {
+            current = when (current) {
+                is ObjectNode -> current.get(instruction) ?: return null
+                is ArrayNode -> {
+                    val index = instruction.toIntOrNull() ?: 0
+                    if (current.has(index)) current.get(index) else return null
+                }
+                else -> return null
+            }
+        }
+        
+        return getValue(current)
+    }
+
+    /**
+     * Resolve an integer argument that can be either a static value or a JSON selector
+     */
+    private fun resolveIntArgument(
+        json: JsonNode, 
+        argument: String?, 
+        contextNodes: List<JsonNode> = listOf()
+    ): Int? {
+        if (argument == null) return null
+        
+        // Try to parse as a static number first
+        argument.toIntOrNull()?.let { return it }
+        
+        // If not a number, treat as a JSON selector from the root context
+        val rootContext = if (contextNodes.isNotEmpty()) contextNodes.first() else json
+        val result = try {
+            // Use simple path resolution without modifiers to avoid recursion
+            selectSimplePath(rootContext, argument)
+        } catch (e: Exception) {
+            null
+        }
+        return when (result) {
+            is Number -> result.toInt()
+            is String -> result.toIntOrNull()
+            else -> null
+        }
+    }
+
+    /**
+     * Apply built-in modifiers
+     */
+    private fun applyModifier(
+        json: JsonNode, 
+        instruction: String, 
+        contextNodes: List<JsonNode> = listOf(),
+        previousArrayLevel: Int = 0
+    ): JsonNode {
+        val parts = instruction.split(":", limit = 2)
+        val modifier = parts[0]
+        val argument = if (parts.size > 1) parts[1] else null
+        
+        return when (modifier) {
+            "@reverse" -> when (json) {
+                is ArrayNode -> {
+                    val reversed = objectMapper.createArrayNode()
+                    json.reversed().forEach { reversed.add(it) }
+                    reversed
+                }
+                is ObjectNode -> {
+                    val reversed = objectMapper.createObjectNode()
+                    json.fieldNames().asSequence().toList().reversed().forEach { key ->
+                        reversed.set<JsonNode>(key, json.get(key))
+                    }
+                    reversed
+                }
+                else -> json
+            }
+            "@keys" -> when (json) {
+                is ObjectNode -> {
+                    val keys = objectMapper.createArrayNode()
+                    json.fieldNames().forEach { keys.add(it) }
+                    keys
+                }
+                else -> objectMapper.createArrayNode()
+            }
+            "@values" -> when (json) {
+                is ObjectNode -> {
+                    val values = objectMapper.createArrayNode()
+                    json.fields().forEach { values.add(it.value) }
+                    values
+                }
+                else -> objectMapper.createArrayNode()
+            }
+            "@flatten" -> when (json) {
+                is ArrayNode -> {
+                    val flattened = objectMapper.createArrayNode()
+                    json.forEach { element ->
+                        when (element) {
+                            is ArrayNode -> element.forEach { flattened.add(it) }
+                            else -> flattened.add(element)
+                        }
+                    }
+                    flattened
+                }
+                else -> json
+            }
+            "@this" -> json
+            "@pretty" -> {
+                val prettyJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(json)
+                objectMapper.valueToTree(prettyJson)
+            }
+            "@ugly" -> {
+                val compactJson = objectMapper.writeValueAsString(json)
+                objectMapper.valueToTree(compactJson)
+            }
+            "@tostr" -> {
+                objectMapper.valueToTree(json.toString())
+            }
+            "@fromstr" -> {
+                try {
+                    objectMapper.readTree(json.asText())
+                } catch (e: Exception) {
+                    json
+                }
+            }
+            "@sum" -> when (json) {
+                is ArrayNode -> {
+                    val sum = json.sumOf { node ->
+                        when {
+                            node.isNumber -> node.asDouble()
+                            node.isTextual -> node.asText().toDoubleOrNull() ?: 0.0
+                            else -> 0.0
+                        }
+                    }
+                    objectMapper.valueToTree(sum)
+                }
+                else -> objectMapper.valueToTree(0)
+            }
+            "@avg" -> when (json) {
+                is ArrayNode -> {
+                    if (json.size() == 0) {
+                        objectMapper.valueToTree(0)
+                    } else {
+                        val sum = json.sumOf { node ->
+                            when {
+                                node.isNumber -> node.asDouble()
+                                node.isTextual -> node.asText().toDoubleOrNull() ?: 0.0
+                                else -> 0.0
+                            }
+                        }
+                        objectMapper.valueToTree(sum / json.size())
+                    }
+                }
+                else -> objectMapper.valueToTree(0)
+            }
+            "@min" -> when (json) {
+                is ArrayNode -> {
+                    val minValue = json.minOfOrNull { node ->
+                        when {
+                            node.isNumber -> node.asDouble()
+                            node.isTextual -> node.asText().toDoubleOrNull() ?: Double.MAX_VALUE
+                            else -> Double.MAX_VALUE
+                        }
+                    }
+                    objectMapper.valueToTree(minValue ?: 0)
+                }
+                else -> objectMapper.valueToTree(0)
+            }
+            "@max" -> when (json) {
+                is ArrayNode -> {
+                    val maxValue = json.maxOfOrNull { node ->
+                        when {
+                            node.isNumber -> node.asDouble()
+                            node.isTextual -> node.asText().toDoubleOrNull() ?: Double.MIN_VALUE
+                            else -> Double.MIN_VALUE
+                        }
+                    }
+                    objectMapper.valueToTree(maxValue ?: 0)
+                }
+                else -> objectMapper.valueToTree(0)
+            }
+            "@count" -> when (json) {
+                is ArrayNode -> objectMapper.valueToTree(json.size())
+                is ObjectNode -> objectMapper.valueToTree(json.size())
+                else -> objectMapper.valueToTree(1)
+            }
+            "@join" -> when (json) {
+                is ArrayNode -> {
+                    val separator = argument?.trim() ?: ","
+                    val joinedString = json.joinToString(separator) { node ->
+                        when {
+                            node.isTextual -> node.asText()
+                            node.isNumber -> node.asText()
+                            else -> node.toString().removeSurrounding("\"")
+                        }
+                    }
+                    objectMapper.valueToTree(joinedString)
+                }
+                else -> json
+            }
+            "@multiply", "@mul" -> when (json) {
+                is ArrayNode -> {
+                    val multiplier = resolveArgument(json, argument, contextNodes) ?: 1.0
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> node.asDouble() * multiplier
+                            node.isTextual -> (node.asText().toDoubleOrNull() ?: 0.0) * multiplier
+                            else -> 0.0
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val multiplier = resolveArgument(json, argument, contextNodes) ?: 1.0
+                    val value = when {
+                        json.isNumber -> json.asDouble() * multiplier
+                        json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) * multiplier
+                        else -> 0.0
+                    }
+                    objectMapper.valueToTree(value)
+                }
+            }
+            "@divide", "@div" -> when (json) {
+                is ArrayNode -> {
+                    val divisor = resolveArgument(json, argument, contextNodes) ?: 1.0
+                    if (divisor == 0.0) return json // Avoid division by zero
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> node.asDouble() / divisor
+                            node.isTextual -> (node.asText().toDoubleOrNull() ?: 0.0) / divisor
+                            else -> 0.0
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val divisor = resolveArgument(json, argument, contextNodes) ?: 1.0
+                    if (divisor == 0.0) return json // Avoid division by zero
+                    val value = when {
+                        json.isNumber -> json.asDouble() / divisor
+                        json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) / divisor
+                        else -> 0.0
+                    }
+                    objectMapper.valueToTree(value)
+                }
+            }
+            "@add", "@plus" -> when (json) {
+                is ArrayNode -> {
+                    val addend = resolveArgument(json, argument, contextNodes) ?: 0.0
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> node.asDouble() + addend
+                            node.isTextual -> (node.asText().toDoubleOrNull() ?: 0.0) + addend
+                            else -> addend
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val addend = resolveArgument(json, argument, contextNodes) ?: 0.0
+                    val value = when {
+                        json.isNumber -> json.asDouble() + addend
+                        json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) + addend
+                        else -> addend
+                    }
+                    objectMapper.valueToTree(value)
+                }
+            }
+            "@subtract", "@sub" -> when (json) {
+                is ArrayNode -> {
+                    val subtrahend = resolveArgument(json, argument, contextNodes) ?: 0.0
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> node.asDouble() - subtrahend
+                            node.isTextual -> (node.asText().toDoubleOrNull() ?: 0.0) - subtrahend
+                            else -> -subtrahend
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val subtrahend = resolveArgument(json, argument, contextNodes) ?: 0.0
+                    val value = when {
+                        json.isNumber -> json.asDouble() - subtrahend
+                        json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) - subtrahend
+                        else -> -subtrahend
+                    }
+                    objectMapper.valueToTree(value)
+                }
+            }
+            "@power", "@pow" -> when (json) {
+                is ArrayNode -> {
+                    val exponent = resolveArgument(json, argument, contextNodes) ?: 1.0
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> node.asDouble().pow(exponent)
+                            node.isTextual -> (node.asText().toDoubleOrNull() ?: 0.0).pow(exponent)
+                            else -> 0.0
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val exponent = resolveArgument(json, argument, contextNodes) ?: 1.0
+                    val value = when {
+                        json.isNumber -> json.asDouble().pow(exponent)
+                        json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0).pow(exponent)
+                        else -> 0.0
+                    }
+                    objectMapper.valueToTree(value)
+                }
+            }
+            "@round" -> when (json) {
+                is ArrayNode -> {
+                    val digits = resolveIntArgument(json, argument, contextNodes) ?: 0
+                    val multiplier = 10.0.pow(digits.toDouble())
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> round(node.asDouble() * multiplier) / multiplier
+                            node.isTextual -> round((node.asText().toDoubleOrNull() ?: 0.0) * multiplier) / multiplier
+                            else -> 0.0
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val digits = resolveIntArgument(json, argument, contextNodes) ?: 0
+                    val multiplier = 10.0.pow(digits.toDouble())
+                    val value = when {
+                        json.isNumber -> round(json.asDouble() * multiplier) / multiplier
+                        json.isTextual -> round((json.asText().toDoubleOrNull() ?: 0.0) * multiplier) / multiplier
+                        else -> 0.0
+                    }
+                    objectMapper.valueToTree(value)
+                }
+            }
+            "@abs" -> when (json) {
+                is ArrayNode -> {
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        val value = when {
+                            node.isNumber -> abs(node.asDouble())
+                            node.isTextual -> abs(node.asText().toDoubleOrNull() ?: 0.0)
+                            else -> 0.0
+                        }
+                        resultArray.add(value)
+                    }
+                    resultArray
+                }
+                else -> {
+                    val value = when {
+                        json.isNumber -> abs(json.asDouble())
+                        json.isTextual -> abs(json.asText().toDoubleOrNull() ?: 0.0)
+                        else -> 0.0
+                    }
+                    objectMapper.valueToTree(value)
+                }
+            }
+            "@sort" -> when (json) {
+                is ArrayNode -> {
+                    val order = argument?.lowercase() ?: "asc"
+                    val sortedArray = objectMapper.createArrayNode()
+                    val sortedElements = json.sortedWith { a, b ->
+                        val comparison = when {
+                            a.isNumber && b.isNumber -> a.asDouble().compareTo(b.asDouble())
+                            a.isTextual && b.isTextual -> a.asText().compareTo(b.asText())
+                            a.isBoolean && b.isBoolean -> a.asBoolean().compareTo(b.asBoolean())
+                            else -> a.toString().compareTo(b.toString())
+                        }
+                        if (order == "desc") -comparison else comparison
+                    }
+                    sortedElements.forEach { sortedArray.add(it) }
+                    sortedArray
+                }
+                else -> json
+            }
+            "@sortBy" -> when (json) {
+                is ArrayNode -> {
+                    val sortParts = argument?.split(":", limit = 2) ?: listOf()
+                    val property = sortParts.getOrNull(0) ?: ""
+                    val order = sortParts.getOrNull(1)?.lowercase() ?: "asc"
+                    
+                    if (property.isEmpty()) return json
+                    
+                    val sortedArray = objectMapper.createArrayNode()
+                    val sortedElements = json.sortedWith { a, b ->
+                        val aValue = parseAndGet(a, property)
+                        val bValue = parseAndGet(b, property)
+                        
+                        val comparison = when {
+                            aValue is Number && bValue is Number -> 
+                                aValue.toDouble().compareTo(bValue.toDouble())
+                            aValue != null && bValue != null -> 
+                                aValue.toString().compareTo(bValue.toString())
+                            aValue == null && bValue != null -> -1
+                            aValue != null && bValue == null -> 1
+                            else -> 0
+                        }
+                        if (order == "desc") -comparison else comparison
+                    }
+                    sortedElements.forEach { sortedArray.add(it) }
+                    sortedArray
+                }
+                else -> json
+            }
+            else -> json
+        }
+    }
+    
+    /**
+     * Check if selection is for JSON Lines (starts with ..)
+     */
+    private fun isJsonLinesSelection(selection: String): Boolean {
+        return selection.startsWith("..")
+    }
+    
+    /**
+     * Handle JSON Lines format
+     */
+    private fun handleJsonLines(jsonLines: String, selection: String): Any? {
+        val lines = jsonLines.trim().split("\n").filter { it.isNotBlank() }
+        val jsonArray = objectMapper.createArrayNode()
+        
+        lines.forEach { line ->
+            try {
+                val parsedLine = objectMapper.readTree(line)
+                jsonArray.add(parsedLine)
+            } catch (e: Exception) {
+                // Skip invalid JSON lines
+            }
+        }
+        
+        val cleanedSelection = selection.removePrefix("..")
+        return if (cleanedSelection.isEmpty()) {
+            getValue(jsonArray)
+        } else {
+            inputType = DataType.JACKSON
+            // Wrap the path in brackets for array access if it starts with a number
+            val arraySelection = if (cleanedSelection.matches("^\\d+.*".toRegex())) {
+                "[${cleanedSelection}]"
+            } else {
+                cleanedSelection
+            }
+            parseAndGet(jsonArray, arraySelection)
+        }
+    }
+    
+    /**
+     * Iterate through JSON Lines
+     */
+    fun forEachLine(jsonLines: String, action: (GSJsonResult) -> Boolean) {
+        val lines = jsonLines.trim().split("\n").filter { it.isNotBlank() }
+        
+        for (line in lines) {
+            try {
+                val parsedLine = objectMapper.readTree(line)
+                val result = createResult(getValue(parsedLine))
+                if (!action(result)) break
+            } catch (e: Exception) {
+                // Skip invalid JSON lines
+            }
+        }
     }
 }

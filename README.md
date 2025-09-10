@@ -1,6 +1,5 @@
-# GSJSon
-Json `Getter` and `Setter` language. It allows for easy `Json` structure creation or Json structure value extraction. It allows for complex mapping instructions such as filtering, parsing dates and parsing end-values
-
+# GSJson
+JSON `Getter` and `Setter` language inspired by [GJSON](https://github.com/tidwall/gjson). It provides a fast and simple way to get values from JSON documents with powerful path syntax and built-in modifiers.
 
 ## Installation
 Install using Maven or Gradle. Replace `LATEST_VERSION` with the actual latest version. 
@@ -22,78 +21,307 @@ dependencies {
 
 ## Features 
 
-- Support of multiple input and output types. It supports `Strings`, `org.json` and `jackson-json`
-- Select `json` values by using a dot-notation
-- Select complex `json` element by filters and helpers (in-progress)
-- Create `json` structures with values by using a dot-notation and as a key-value pair
-- Create complex json structures with updating, filtering and helper-functions (in-progress)
+- **Multiple Data Type Support**: Works with `String`, `org.json.JSONObject`, `org.json.JSONArray`, and Jackson `JsonNode`
+- **Dot Notation Paths**: Select JSON values using intuitive dot notation syntax
+- **Wildcard Support**: Use `*` and `?` wildcards for key matching
+- **Array Operations**: Access array elements, get length, and extract child paths
+- **Advanced Filtering**: Support for `==`, `!=`, `<`, `<=`, `>`, `>=`, `%` (like), `!%` (not like) operators
+- **Nested Array Queries**: Complex filtering with nested conditions
+- **Built-in Modifiers**: Transform data with modifiers like `@reverse`, `@sort`, `@sum`, `@avg`, `@join`, etc.
+- **Path Chaining**: Chain operations using the pipe `|` character
+- **JSON Lines Support**: Process newline-delimited JSON with `..` prefix
+- **Enhanced Result Type**: Rich result objects with utility methods
+- **Reducer Functions**: Aggregate array data with mathematical and string operations
+
+## Path Syntax
+
+A path is a series of keys separated by dots. GSJSON supports the following path features:
+
+- **Basic Access**: `name.first` - Access nested properties
+- **Array Index**: `developers.[0]` - Access array elements by index
+- **Array Length**: `developers.[#]` - Get array length
+- **All Elements**: `developers.[#.firstName]` - Get all firstName values from array
+- **Wildcards**: `*.name` or `test?` - Match keys with wildcards
+- **Filtering**: `developers.[age > "25"]` - Filter arrays by conditions
+- **Escaping**: `fav\.movie` - Escape special characters
 
 ## Examples
 
-For the follow examples, keep the following json in mind: 
+For the following examples, consider this JSON:
 
 ```json
 {
-  "name": "Transportial", 
-  "age": 4,
-  "developers": [
-    {
-      "firstName": "Developer 1", 
-      "lastName": "Lastname 1",
-      "age": 1
-    },
-    {
-      "firstName": "Developer 2",
-      "lastName": "Lastname 2",
-      "age": 4
-    }
-  ], 
-  "company": {
-    "name": "Transportial BV"
-  }
+  "name": {"first": "Tom", "last": "Anderson"},
+  "age": 37,
+  "children": ["Sara", "Alex", "Jack"],
+  "fav.movie": "Deer Hunter",
+  "friends": [
+    {"first": "Dale", "last": "Murphy", "age": 44, "nets": ["ig", "fb", "tw"]},
+    {"first": "Roger", "last": "Craig", "age": 68, "nets": ["fb", "tw"]},
+    {"first": "Jane", "last": "Murphy", "age": 47, "nets": ["ig", "tw"]},
+    {"first": "David", "last": "Smith", "age": 25, "nets": ["fb"]}
+  ]
 }
 ```
 
-### Selecting
-Select the age
+### Basic Selection
+
 ```kotlin
-GSJson.get(json, "age")
+// Basic property access
+GSJson.get(json, "age")                    // Returns: 37
+GSJson.get(json, "name.last")              // Returns: "Anderson"
+GSJson.get(json, "children")               // Returns: ["Sara","Alex","Jack"]
+
+// Escaped property names
+GSJson.get(json, "fav\\.movie")            // Returns: "Deer Hunter"
 ```
 
-Select the company name
+### Array Operations
+
 ```kotlin
-GSJson.get(json, "company.name")
+// Array indexing
+GSJson.get(json, "children.[0]")           // Returns: "Sara"
+GSJson.get(json, "children.[1]")           // Returns: "Alex"
+
+// Array length
+GSJson.get(json, "children.[#]")           // Returns: 3
+GSJson.get(json, "friends.[#]")            // Returns: 4
+
+// All child elements
+GSJson.get(json, "friends.[#.first]")      // Returns: ["Dale","Roger","Jane","David"]
+GSJson.get(json, "friends.[#.age]")        // Returns: [44,68,47,25]
 ```
 
-Select the first developer's first name
+### Wildcards
+
 ```kotlin
-GSJson.get(json, "developers.[0].firstName")
+// Wildcard matching
+GSJson.get(json, "name.*")                 // Returns: ["Tom","Anderson"] 
+GSJson.get(json, "name.fir?t")             // Returns: "Tom"
 ```
 
-Select the developer's name who's age is 4
+### Filtering
+
 ```kotlin
-GSJson.get(json, "developers.[age == \"4\"].firstName")
+// Basic filtering
+GSJson.get(json, "friends.[last == \"Murphy\"].first")     // Returns: "Dale"
+GSJson.get(json, "friends.[age > \"45\"].[0].first")       // Returns: "Roger"
+GSJson.get(json, "friends.[age <= \"30\"].[0].first")      // Returns: "David"
+
+// Pattern matching
+GSJson.get(json, "friends.[first % \"D*\"].last")          // Returns: "Murphy" (Dale)
+GSJson.get(json, "friends.[first !% \"D*\"].[0].first")    // Returns: "Roger"
+
+// Nested array filtering
+GSJson.get(json, "friends.[nets.[# == \"fb\"]].[#.first]") // Returns: ["Dale","Roger","David"]
 ```
 
+### Built-in Modifiers
 
-### Writing
-
-Write the age
 ```kotlin
-GSJson.set(json, "age", 4)
+// Array manipulation
+GSJson.get(json, "children|@reverse")      // Returns: ["Jack","Alex","Sara"]
+GSJson.get(json, "children|@count")        // Returns: 3
+
+// Object operations  
+GSJson.get(json, "name|@keys")             // Returns: ["first","last"]
+GSJson.get(json, "name|@values")           // Returns: ["Tom","Anderson"]
+
+// JSON formatting
+GSJson.get(json, "name|@pretty")           // Returns: prettified JSON
+GSJson.get(json, "name|@ugly")             // Returns: minified JSON
 ```
 
-Write the company name
+### Sorting Operations
+
 ```kotlin
-GSJson.set(json, "company.name", "Transportial BV")
+// Basic array sorting
+GSJson.get(json, "children|@sort")         // Returns: ["Alex","Jack","Sara"]
+GSJson.get(json, "children|@sort:desc")    // Returns: ["Sara","Jack","Alex"]
+
+// Sort arrays by object property
+GSJson.get(json, "friends|@sortBy:age")    // Sort by age ascending
+GSJson.get(json, "friends|@sortBy:age:desc")     // Sort by age descending
+GSJson.get(json, "friends|@sortBy:first")        // Sort by first name
+GSJson.get(json, "friends|@sortBy:last:desc")    // Sort by last name descending
+
+// Chain sorting with other operations
+GSJson.get(json, "friends.[age > \"40\"]|@sortBy:age|[#.first]")  // Filter, sort, then extract names
+GSJson.get(json, "friends.[#.age]|@sort:desc|[0]")               // Get highest age
 ```
 
-Write the first developer's first name
+### Reducer Operations
+
 ```kotlin
-GSJson.set(json, "developers.[0].firstName", "Developer 1")
+// Mathematical operations
+GSJson.get(json, "friends.[#.age]|@sum")   // Returns: 184.0
+GSJson.get(json, "friends.[#.age]|@avg")   // Returns: 46.0
+GSJson.get(json, "friends.[#.age]|@min")   // Returns: 25.0  
+GSJson.get(json, "friends.[#.age]|@max")   // Returns: 68.0
+
+// String operations
+GSJson.get(json, "friends.[#.first]|@join")        // Returns: "Dale,Roger,Jane,David"
+GSJson.get(json, "friends.[#.first]|@join: | ")    // Returns: "Dale | Roger | Jane | David"
+GSJson.get(json, "children|@join:-")               // Returns: "Sara-Alex-Jack"
 ```
 
-Write the developer's name who's age is 4
+### Mathematical Operations
+
 ```kotlin
-GSJson.get(json, "developers.[age == \"4\"].firstName", "Developer 2")
+val numbers = "[10, 20, 30, 40, 50]"
+
+// Basic math operations on arrays
+GSJson.get(numbers, ".|@multiply:2")    // Returns: [20.0, 40.0, 60.0, 80.0, 100.0]
+GSJson.get(numbers, ".|@add:5")         // Returns: [15.0, 25.0, 35.0, 45.0, 55.0]
+GSJson.get(numbers, ".|@subtract:10")   // Returns: [0.0, 10.0, 20.0, 30.0, 40.0]
+GSJson.get(numbers, ".|@divide:2")      // Returns: [5.0, 10.0, 15.0, 20.0, 25.0]
+
+// Advanced math operations
+GSJson.get(numbers, ".|@abs")           // Returns: absolute values
+GSJson.get(numbers, ".|@round:1")       // Returns: rounded to 1 decimal place
+GSJson.get(numbers, ".|@power:2")       // Returns: squared values
+
+// Chain mathematical operations with aggregation
+GSJson.get(json, "friends.[#.age]|@add:5|@sum")  // Add 5 to each age, then sum
 ```
+
+### Dynamic Mathematical Operations
+
+Mathematical operations now support both static values and JSON selectors as arguments:
+
+```kotlin
+val dynamicMathJson = """
+{
+  "numbers": [10, 20, 30],
+  "multiplier": 3,
+  "divisor": 2,
+  "addend": 5,
+  "config": {
+    "factor": 4,
+    "precision": 1
+  }
+}
+"""
+
+// Dynamic operations using JSON selectors
+GSJson.get(dynamicMathJson, "numbers|@multiply:multiplier")      // Returns: [30.0, 60.0, 90.0]
+GSJson.get(dynamicMathJson, "numbers|@divide:divisor")           // Returns: [5.0, 10.0, 15.0]
+GSJson.get(dynamicMathJson, "numbers|@add:addend")               // Returns: [15.0, 25.0, 35.0]
+GSJson.get(dynamicMathJson, "numbers|@subtract:addend")          // Returns: [5.0, 15.0, 25.0]
+GSJson.get(dynamicMathJson, "numbers|@power:divisor")            // Returns: [100.0, 400.0, 900.0]
+
+// Nested path selectors
+GSJson.get(dynamicMathJson, "numbers|@multiply:config.factor")   // Returns: [40.0, 80.0, 120.0]
+GSJson.get(dynamicMathJson, "numbers|@round:config.precision")   // Returns: rounded values
+
+// Chain dynamic and static operations
+GSJson.get(dynamicMathJson, "numbers|@add:addend|@multiply:2")   // Add dynamic value, then multiply by 2
+GSJson.get(dynamicMathJson, "numbers|@multiply:config.factor|@divide:divisor")  // Dynamic multiply then dynamic divide
+```
+
+**Supported dynamic math operations:**
+- `@multiply:selector` / `@mul:selector` - Multiply by value from JSON selector
+- `@divide:selector` / `@div:selector` - Divide by value from JSON selector  
+- `@add:selector` / `@plus:selector` - Add value from JSON selector
+- `@subtract:selector` / `@sub:selector` - Subtract value from JSON selector
+- `@power:selector` / `@pow:selector` - Raise to power from JSON selector
+- `@round:selector` - Round to precision from JSON selector
+
+### Fallback Default Values
+
+```kotlin
+// Provide defaults for missing or null values
+GSJson.get(json, "name.middle", "J")              // Returns: "J" (field doesn't exist)
+GSJson.get(json, "age", 0)                        // Returns: 37 (field exists)
+GSJson.get(json, "missing.field", "default")      // Returns: "default"
+GSJson.get(json, "friends.[99].name", "Unknown")  // Returns: "Unknown" (index out of bounds)
+
+// Works with all data types
+GSJson.get(json, "missing.number", 42)            // Numeric default
+GSJson.get(json, "missing.boolean", true)         // Boolean default
+GSJson.get(json, "missing.list", listOf("a", "b")) // List default
+```
+
+### Path Chainingpl
+
+```kotlin
+// Chain multiple operations
+GSJson.get(json, "friends.[age > \"40\"].[#.first]|@join")  // Returns: "Dale,Roger,Jane"
+GSJson.get(json, "children|@reverse|@join")                 // Returns: "Jack,Alex,Sara"
+GSJson.get(json, "friends.[#.age]|@reverse|@max")          // Returns: 68.0
+```
+
+### JSON Lines
+
+Process newline-delimited JSON:
+
+```kotlin
+val jsonLines = """
+{"name": "Alice", "age": 30}
+{"name": "Bob", "age": 25}  
+{"name": "Charlie", "age": 35}
+"""
+
+GSJson.get(jsonLines, "..#")                    // Returns: 3
+GSJson.get(jsonLines, "..[1].name")             // Returns: "Bob"
+GSJson.get(jsonLines, "..[#.name]|@join")       // Returns: "Alice,Bob,Charlie"
+GSJson.get(jsonLines, "..[age > \"30\"].[0].name")  // Returns: "Charlie"
+```
+
+### Enhanced Result Type
+
+```kotlin
+val result = GSJson.getResult(json, "age")
+result.int()        // Returns: 37
+result.string()     // Returns: "37"
+result.exists       // Returns: true
+result.type         // Returns: ResultType.NUMBER
+
+// Array results
+val arrayResult = GSJson.getResult(json, "friends.[#.first]")
+arrayResult.array().forEach { name -> 
+    println(name.string())
+}
+```
+
+### Setting Values
+
+```kotlin
+// Basic setting
+GSJson.set(json, "age", 38)
+GSJson.set(json, "name.middle", "J")
+GSJson.set(json, "friends.[0].age", 45)
+
+// Array operations
+GSJson.set(json, "hobbies.[0]", "reading")
+GSJson.set(json, "scores", listOf(85, 90, 78))
+```
+
+### Utility Methods
+
+```kotlin
+// Check existence
+GSJson.exists(json, "name.first")          // Returns: true
+GSJson.exists(json, "name.middle")         // Returns: false
+
+// Process JSON Lines
+GSJson.forEachLine(jsonLines) { line ->
+    println("Name: ${line.get("name").string()}")
+    true // continue iteration
+}
+```
+
+## Comparison with GJSON
+
+GSJSON maintains the same powerful querying capabilities as GJSON while using slightly different syntax:
+
+| Feature | GJSON | GSJSON |
+|---------|-------|--------|
+| Array filtering | `friends.#(age>40)` | `friends.[age > "40"]` |
+| Array access | `friends.0.name` | `friends.[0].name` |
+| All elements | `friends.#.name` | `friends.[#.name]` |
+| Modifiers | `children\|@reverse` | `children\|@reverse` |
+
+## Performance
+
+GSJSON is built on Jackson for JSON parsing, providing excellent performance for JSON operations while maintaining the intuitive path syntax inspired by GJSON.
