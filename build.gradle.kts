@@ -1,11 +1,13 @@
 plugins {
-    kotlin("jvm") version "1.9.23"
+    kotlin("jvm") version "1.9.20"
+    `maven-publish`
     signing
     id("com.vanniktech.maven.publish") version "0.34.0"
+    id("co.uzzu.dotenv.gradle") version "4.0.0"
 }
 
 object Meta {
-    const val name = "gsjson"
+    const val name = "GSJson"
     const val username = "transportial"
     const val desc = "GSJson is a getter/setter syntax interpretation language"
     const val license = "Apache-2.0"
@@ -16,7 +18,6 @@ group = "com.transportial"
 version = "0.1.44"
 
 repositories {
-    mavenLocal()
     mavenCentral()
 }
 
@@ -33,36 +34,15 @@ tasks.test {
 }
 
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(8)
 }
 
-//signing {
-//
-//    val signingKey = System.getenv("GPG_SIGNING_KEY")
-//        ?.replace("\r\n", "\n")  // Normalize line endings
-//        ?.replace("\\n", "\n")   // Handle escaped newlines
-//
-//    println("Has signing key: ${signingKey != null} and it contains ${signingKey?.length} characters")
-//
-//    val signingPassword = System.getenv("MAVEN_GPG_PASSPHRASE")
-//    val keyId = System.getenv("ORG_GRADLE_PROJECT_signingInMemoryKeyId")
-//
-//    println("Has signing password: ${signingPassword != null} and it contains ${signingPassword?.length} characters")
-//
-//    if (signingKey != null && signingPassword != null) {
-//        useInMemoryPgpKeys(signingKey, signingPassword)
-//    }
-//}
-
-// Configure the vanniktech maven publish plugin
 mavenPublishing {
 
-    publishToMavenCentral(automaticRelease = true)
-
+    publishToMavenCentral()
     signAllPublications()
-
-//    configure(GradlePublishPlugin())
-
+}
+mavenPublishing {
     coordinates(
         group.toString(),
         Meta.name,
@@ -79,7 +59,7 @@ mavenPublishing {
             license {
                 name.set(Meta.license)
                 url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
-                distribution.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                distribution.set("repo")
             }
         }
 
@@ -102,21 +82,4 @@ mavenPublishing {
             url.set("https://github.com/${Meta.githubRepo}")
         }
     }
-
-
-
-    // Only configure Maven Central publishing if credentials are available
-    val hasCredentials = (System.getenv("CENTRAL_TOKEN_USERNAME") != null && System.getenv("CENTRAL_TOKEN_PASSWORD") != null)
-
-    print("has CENTRAL_TOKEN_USERNAME: ${System.getenv("CENTRAL_TOKEN_USERNAME") != null} and it contains ${System.getenv("CENTRAL_TOKEN_USERNAME")?.length} characters")
-    print("has CENTRAL_TOKEN_PASSWORD: ${System.getenv("CENTRAL_TOKEN_PASSWORD") != null} and it contains ${System.getenv("CENTRAL_TOKEN_PASSWORD")?.length} characters")
-
-    println("Has credentials: $hasCredentials")
-}
-
-// Add this task for automatic release
-tasks.register("publishAndAutoRelease") {
-    group = "publishing"
-    description = "Publishes to Sonatype and automatically releases"
-    dependsOn("publishAllPublicationsToMavenCentralRepository")
 }
