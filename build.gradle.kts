@@ -15,7 +15,7 @@ object Meta {
 }
 
 group = "com.transportial"
-version = "0.1.44"
+version = "0.1.45"
 
 repositories {
     mavenCentral()
@@ -39,9 +39,10 @@ kotlin {
 
 mavenPublishing {
 
-    publishToMavenCentral()
+    publishToMavenCentral(automaticRelease = true)
     signAllPublications()
 }
+
 mavenPublishing {
     coordinates(
         group.toString(),
