@@ -1,0 +1,51 @@
+{
+  "name": "gsjson",
+  "version": "1.0.8",
+  "description": "JSON Getter and Setter language — JavaScript port of the GSJson Kotlin library. Fast, concise path syntax for reading and writing values in JSON documents.",
+  "type": "module",
+  "main": "./GSJson.js",
+  "module": "./GSJson.js",
+  "exports": {
+    ".": {
+      "import": "./GSJson.js",
+      "default": "./GSJson.js"
+    }
+  },
+  "files": [
+    "GSJson.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/.bin/jest"
+  },
+  "keywords": [
+    "json",
+    "path",
+    "selector",
+    "getter",
+    "setter",
+    "gjson",
+    "query",
+    "filter",
+    "modifier",
+    "jsonlines"
+  ],
+  "author": "Transportial BV",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/transportial/gsjson"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "transform": {},
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/*.test.js"
+    ],
+    "extensionsToTreatAsEsm": []
+  }
+}
