@@ -1,14 +1,13 @@
-import com.vanniktech.maven.publish.GradlePublishPlugin
-import java.util.Base64
-
 plugins {
-    kotlin("jvm") version "1.9.23"
+    kotlin("jvm") version "1.9.20"
+    `maven-publish`
     signing
     id("com.vanniktech.maven.publish") version "0.34.0"
+    id("co.uzzu.dotenv.gradle") version "4.0.0"
 }
 
 object Meta {
-    const val name = "gsjson"
+    const val name = "GSJson"
     const val username = "transportial"
     const val desc = "GSJson is a getter/setter syntax interpretation language"
     const val license = "Apache-2.0"
@@ -16,10 +15,9 @@ object Meta {
 }
 
 group = "com.transportial"
-version = "1.0.8"
+version = "0.1.6"
 
 repositories {
-    mavenLocal()
     mavenCentral()
 }
 
@@ -36,21 +34,21 @@ tasks.test {
 }
 
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(8)
 }
 
-signing {
-    // These property names must match the environment variables from the GitHub workflow
-    val signingKey = findProperty("signingInMemoryKey")?.toString()
-    val signingPassword = findProperty("signingInMemoryKeyPassword")?.toString()
-    useInMemoryPgpKeys(signingKey, signingPassword)
-}
-
-// Configure the vanniktech maven publish plugin
 mavenPublishing {
 
-    // Use project properties and the Meta object directly for better clarity and robustness
-    coordinates(project.group.toString(), Meta.name, project.version.toString())
+    publishToMavenCentral(automaticRelease = true)
+    signAllPublications()
+}
+
+mavenPublishing {
+    coordinates(
+        group.toString(),
+        Meta.name,
+        version.toString()
+    )
 
     pom {
         name.set(Meta.name)
@@ -62,7 +60,7 @@ mavenPublishing {
             license {
                 name.set(Meta.license)
                 url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
-                distribution.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                distribution.set("repo")
             }
         }
 
@@ -74,8 +72,8 @@ mavenPublishing {
         developers {
             developer {
                 id.set(Meta.username)
-                name.set("T. de Boer") // Or your name
-                url.set("https://github.com/${Meta.username}")
+                name.set("Transportial BV")
+                url.set("https://transportial.com")
             }
         }
 
@@ -84,16 +82,5 @@ mavenPublishing {
             developerConnection.set("scm:git:ssh://git@github.com/${Meta.githubRepo}.git")
             url.set("https://github.com/${Meta.githubRepo}")
         }
-    }
-
-    // Configure signing
-    signAllPublications()
-
-    // Only configure Maven Central publishing if credentials are available
-    val hasCredentials = findProperty("mavenCentralUsername") != null &&
-            findProperty("mavenCentralPassword") != null
-
-    if (hasCredentials) {
-        publishToMavenCentral(automaticRelease = true)
     }
 }
