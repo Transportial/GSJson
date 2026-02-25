@@ -624,8 +624,8 @@ object GSJson {
             copiedSelection = copiedSelection.replace(match.value, reference)
         }
         
-        // Protect modifier arguments from being split
-        val modifierReferenceRegex = "@\\w+:[^|]*"
+        // Protect modifier arguments from being split (quoted strings may contain '|')
+        val modifierReferenceRegex = """@\w+:(?:"[^"]*"|'[^']*'|[^|])*"""
         val modifierReferences = mutableMapOf<String, Any>()
         modifierReferenceRegex.toRegex().findAll(copiedSelection).forEach { match ->
             val reference = "modifier${HelperUtils.number(10)}"
@@ -1050,6 +1050,46 @@ object GSJson {
     }
 
     /**
+     * Traverse a selection path and return the raw JsonNode without converting via getValue().
+     * Used internally by @flatMap to inspect whether the result is an array before flattening.
+     */
+    private fun parseAndGetAsNode(
+        json: JsonNode,
+        selection: String,
+        contextNodes: List<JsonNode> = listOf(json),
+        previousArrayLevel: Int = 0
+    ): JsonNode {
+        if (isConstantInstruction(selection)) return objectMapper.valueToTree(toConstant(selection))
+
+        val instructions = selectionToInstructions(selection)
+        val previousSelections = contextNodes.toMutableList()
+        var currentSelection = json
+
+        instructions.forEach { instruction ->
+            when {
+                isConstantInstruction(instruction) -> return objectMapper.valueToTree(toConstant(instruction))
+                isBackReference(instruction) -> {
+                    currentSelection = previousSelections[previousSelections.size - getBackReferencesCount(instruction)]
+                }
+                isModifierInstruction(instruction) -> {
+                    currentSelection = applyModifier(currentSelection, instruction, contextNodes, previousArrayLevel)
+                }
+                else -> {
+                    currentSelection = select(
+                        currentSelection,
+                        instruction,
+                        previousSelections.toMutableList().toList(),
+                        previousArrayLevel
+                    )
+                    previousSelections.add(currentSelection.deepCopy())
+                }
+            }
+        }
+
+        return currentSelection
+    }
+
+    /**
      * Resolve an integer argument that can be either a static value or a JSON selector
      */
     private fun resolveIntArgument(
@@ -1217,7 +1257,11 @@ object GSJson {
             }
             "@join" -> when (json) {
                 is ArrayNode -> {
-                    val separator = argument?.trim() ?: ","
+                    // Strip surrounding quotes so @join:", " and @join:" | " work as expected.
+                    val separator = argument?.trim()
+                        ?.removeSurrounding("\"")
+                        ?.removeSurrounding("'")
+                        ?: ","
                     val joinedString = json.joinToString(separator) { node ->
                         when {
                             node.isTextual -> node.asText()
@@ -1226,6 +1270,19 @@ object GSJson {
                         }
                     }
                     objectMapper.valueToTree(joinedString)
+                }
+                else -> json
+            }
+            "@unique", "@distinct" -> when (json) {
+                is ArrayNode -> {
+                    val seen = LinkedHashSet<String>()
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { node ->
+                        if (seen.add(node.toString())) {
+                            resultArray.add(node)
+                        }
+                    }
+                    resultArray
                 }
                 else -> json
             }
@@ -1445,6 +1502,61 @@ object GSJson {
                     sortedArray
                 }
                 else -> json
+            }
+            "@flatMap" -> when (json) {
+                is ArrayNode -> {
+                    if (argument == null) return objectMapper.createArrayNode()
+                    val resultArray = objectMapper.createArrayNode()
+                    json.forEach { item ->
+                        val result = parseAndGetAsNode(item, argument, contextNodes, previousArrayLevel)
+                        when {
+                            result is MissingNode -> { /* omit — path does not exist on this item */ }
+                            result is NullNode -> { /* omit — explicit null */ }
+                            result is ArrayNode -> result.forEach { resultArray.add(it) }
+                            else -> resultArray.add(result)
+                        }
+                    }
+                    resultArray
+                }
+                else -> objectMapper.createArrayNode()
+            }
+            "@filter" -> when (json) {
+                is ArrayNode -> {
+                    if (argument == null) return json
+                    val filteredArray = objectMapper.createArrayNode()
+                    json.forEach { item ->
+                        if (compareSelectors(item, argument, contextNodes, previousArrayLevel)) {
+                            filteredArray.add(item)
+                        }
+                    }
+                    filteredArray
+                }
+                else -> json
+            }
+            "@groupBy" -> when (json) {
+                is ArrayNode -> {
+                    if (argument == null) {
+                        val wrapper = objectMapper.createArrayNode()
+                        wrapper.add(json)
+                        return wrapper
+                    }
+                    val groups = LinkedHashMap<String, ArrayNode>()
+                    json.forEach { item ->
+                        val keyValue = parseAndGet(item, argument, contextNodes, previousArrayLevel)
+                        val groupKey = keyValue?.toString() ?: ""
+                        groups.getOrPut(groupKey) { objectMapper.createArrayNode() }.add(item)
+                    }
+                    val resultArray = objectMapper.createArrayNode()
+                    groups.values.forEach { resultArray.add(it) }
+                    resultArray
+                }
+                else -> {
+                    val wrapper = objectMapper.createArrayNode()
+                    val innerArray = objectMapper.createArrayNode()
+                    innerArray.add(json)
+                    wrapper.add(innerArray)
+                    wrapper
+                }
             }
             else -> json
         }

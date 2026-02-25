@@ -532,4 +532,148 @@ internal object GSJsonTest {
         val secondValues = GSJson.get(arrayMathJson, "data.[1].values|@multiply:globalMultiplier")
         assertEquals("""[12.0,15.0,18.0]""", secondValues, "Should multiply second array by global multiplier")
     }
+
+    @Test
+    fun testFlatMapModifier() {
+        val ordersJson = """
+        {
+            "orders": [
+                {"id": 1, "items": ["apple", "banana"]},
+                {"id": 2, "items": ["cherry"]},
+                {"id": 3, "items": ["date", "elderberry"]}
+            ]
+        }
+        """.trimIndent()
+
+        // sub-arrays are flattened one level
+        val flatItems = GSJson.get(ordersJson, "orders|@flatMap:items")
+        assertEquals("""["apple","banana","cherry","date","elderberry"]""", flatItems, "Should flatten nested item arrays")
+
+        // scalar values are collected (one per item)
+        val firstNames = GSJson.get(selectJson, "friends|@flatMap:first")
+        assertEquals("""["Dale","Roger","Jane","Sjenkie"]""", firstNames, "Should collect scalar fields across items")
+
+        // items where the path is missing are omitted
+        val sparseJson = """
+        {
+            "items": [
+                {"name": "a", "tags": ["x", "y"]},
+                {"name": "b"},
+                {"name": "c", "tags": ["z"]}
+            ]
+        }
+        """.trimIndent()
+        val tags = GSJson.get(sparseJson, "items|@flatMap:tags")
+        assertEquals("""["x","y","z"]""", tags, "Should omit items without the path")
+
+        // non-array input returns empty array
+        val nonArray = GSJson.get(selectJson, "name|@flatMap:first")
+        assertEquals("[]", nonArray, "Non-array input should return empty array")
+    }
+
+    @Test
+    fun testFilterModifier() {
+        // equality filter — two friends with last name "Murphy"
+        val murphys = GSJson.get(selectJson, "friends|@filter:last == \"Murphy\"")
+        assertNotEquals(null, murphys, "Should find Murphy friends")
+        val murphyCount = GSJson.get(murphys.toString(), "[#]")
+        assertEquals(2, murphyCount, "Should find 2 Murphys")
+        val firstMurphy = GSJson.get(murphys.toString(), "[0].first")
+        assertEquals("Dale", firstMurphy, "First Murphy should be Dale")
+        val secondMurphy = GSJson.get(murphys.toString(), "[1].first")
+        assertEquals("Jane", secondMurphy, "Second Murphy should be Jane")
+
+        // numeric comparison — friends older than 45 (Roger 68, Jane 47)
+        val older = GSJson.get(selectJson, "friends|@filter:age > \"45\"")
+        assertNotEquals(null, older, "Should find friends older than 45")
+        val olderCount = GSJson.get(older.toString(), "[#]")
+        assertEquals(2, olderCount, "Should find 2 friends older than 45")
+
+        // wildcard / like operator — name starting with D
+        val dNames = GSJson.get(selectJson, "friends|@filter:first % \"D*\"")
+        assertNotEquals(null, dNames, "Should find friends whose name starts with D")
+        val dCount = GSJson.get(dNames.toString(), "[#]")
+        assertEquals(1, dCount, "Should find 1 friend starting with D")
+        val dFirst = GSJson.get(dNames.toString(), "[0].first")
+        assertEquals("Dale", dFirst, "The D-name friend should be Dale")
+
+        // chain: filter then extract field list
+        val names = GSJson.get(selectJson, "friends|@filter:last == \"Murphy\"|[#.first]")
+        assertEquals("""["Dale","Jane"]""", names, "Should chain filter with extraction")
+    }
+
+    @Test
+    fun testGroupByModifier() {
+        // group friends by last name — 3 distinct last names
+        val grouped = GSJson.get(selectJson, "friends|@groupBy:last")
+        assertNotEquals(null, grouped, "Should group friends by last name")
+
+        val groupCount = GSJson.get(grouped.toString(), "[#]")
+        assertEquals(3, groupCount, "Should have 3 groups")
+
+        // total members across all groups must equal the original array length
+        val totalMembers = (0 until 3).sumOf { i ->
+            GSJson.get(grouped.toString(), "[$i].[#]") as Int
+        }
+        assertEquals(4, totalMembers, "Total members across groups should equal 4")
+
+        // first group is Murphy (2 members, insertion order preserved)
+        val firstGroupSize = GSJson.get(grouped.toString(), "[0].[#]")
+        assertEquals(2, firstGroupSize, "Murphy group should have 2 members")
+        val firstGroupNames = GSJson.get(grouped.toString(), "[0].[#.first]")
+        assertEquals("""["Dale","Jane"]""", firstGroupNames, "Murphy group should contain Dale and Jane")
+
+        // non-array input is wrapped in a single outer group
+        val nonArray = GSJson.get(selectJson, "name|@groupBy:first")
+        assertNotEquals(null, nonArray, "Non-array input should return a result")
+        val wrappedCount = GSJson.get(nonArray.toString(), "[#]")
+        assertEquals(1, wrappedCount, "Non-array input should be wrapped in 1 group")
+    }
+
+    @Test
+    fun testJoinQuotedSeparator() {
+        val numbersJson = """{"scores": [10, 20, 30, 40, 50]}""".trimIndent()
+
+        // quoted multi-char separator: @join:", "
+        val commaSpace = GSJson.get(numbersJson, "scores|@join:\", \"")
+        assertEquals("10, 20, 30, 40, 50", commaSpace, "Should join with comma-space when separator is quoted")
+
+        // quoted separator with spaces: @join:" | "
+        val pipe = GSJson.get(numbersJson, "scores|@join:\" | \"")
+        assertEquals("10 | 20 | 30 | 40 | 50", pipe, "Should join with pipe separator when separator is quoted")
+
+        // unquoted single-char separator still works
+        val dash = GSJson.get(numbersJson, "scores|@join:-")
+        assertEquals("10-20-30-40-50", dash, "Should join with dash")
+
+        // no separator defaults to comma
+        val comma = GSJson.get(numbersJson, "scores|@join")
+        assertEquals("10,20,30,40,50", comma, "Should join with default comma")
+    }
+
+    @Test
+    fun testUniqueDistinctModifier() {
+        val dupJson = """{"tags": ["a", "b", "a", "c", "b", "c"]}""".trimIndent()
+
+        // @unique removes duplicates, preserves insertion order
+        val unique = GSJson.get(dupJson, "tags|@unique")
+        assertEquals("""["a","b","c"]""", unique, "Should remove duplicate strings")
+
+        // @distinct is an alias
+        val distinct = GSJson.get(dupJson, "tags|@distinct")
+        assertEquals("""["a","b","c"]""", distinct, "@distinct should behave like @unique")
+
+        // works on numeric arrays
+        val numJson = """{"values": [1, 2, 2, 3, 1, 4]}""".trimIndent()
+        val uniqueNums = GSJson.get(numJson, "values|@unique")
+        assertEquals("""[1,2,3,4]""", uniqueNums, "Should remove duplicate numbers")
+
+        // non-array input is returned unchanged
+        val nonArray = GSJson.get(selectJson, "name|@unique")
+        assertEquals(GSJson.get(selectJson, "name"), nonArray, "Non-array input should be unchanged")
+
+        // chained: extract all last names and deduplicate
+        val uniqueLastNames = GSJson.get(selectJson, "friends|[#.last]|@unique")
+        assertEquals("""["Murphy","Craig","Name"]""", uniqueLastNames, "Should deduplicate last names")
+    }
 }

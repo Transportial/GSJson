@@ -22,6 +22,7 @@
  *                             children|@sort:desc  friends|@sortBy:age  |@sortBy:age:desc
  *                             .|@multiply:2  .|@add:5  etc.
  *                             name|@tostr  .|@fromstr  .|@this
+ *                             .|@flatMap:path  .|@filter:field op value  .|@groupBy:field
  *   - JSON Lines:             ..#  ..[1].name  ..#.name
  *   - Default values:         GSJson.get(data, "missing.field", "default")
  *
@@ -166,8 +167,58 @@ const _applyModifier = (value, modifierExpr, rootData) => {
       return isArray(value) ? Math.max(...value.map(Number)) : value;
 
     case '@join': {
-      const sep = (arg !== undefined && arg !== '') ? arg : ',';
+      // Strip surrounding quotes so @join:", " and @join:" | " work as expected.
+      const sep = (arg !== undefined && arg !== '') ? arg.replace(/^["']|["']$/g, '') : ',';
       return isArray(value) ? value.join(sep) : String(value ?? '');
+    }
+
+    case '@unique':
+    case '@distinct': {
+      // Remove duplicate primitive values (strings, numbers) from an array.
+      if (!isArray(value)) return value;
+      return [...new Set(value)];
+    }
+
+    // ── new modifiers ──────────────────────────────────────────────────────
+
+    case '@flatMap': {
+      // Maps over each array item using a GSJson path, then flattens one level.
+      // Undefined / null results are omitted.
+      // Example:  actions|@flatMap:entity.actions
+      if (!isArray(value)) return [];
+      return value.flatMap((item) => {
+        const result = _getByPath(item, arg, rootData, []);
+        if (result === undefined || result === null) return [];
+        return isArray(result) ? result : [result];
+      });
+    }
+
+    case '@filter': {
+      // Filters array elements by a field condition: @filter:field op value
+      // Example:  @filter:type == "transportEquipment"
+      if (!isArray(value)) return value;
+      const fmatch = arg.match(/^(.+?)\s*(==|!=|<=|>=|<|>|!%|%)\s*(.+)$/);
+      if (!fmatch) return value;
+      const [, fieldExpr, op, rawRight] = fmatch;
+      const right = rawRight.trim().replace(/^["']|["']$/g, '');
+      return value.filter((item) =>
+        _compareValues(_getByPath(item, fieldExpr.trim(), rootData, []), op, right)
+      );
+    }
+
+    case '@groupBy': {
+      // Groups an array by a key path.  Returns an array of arrays (each
+      // sub-array contains items sharing the same key value), preserving
+      // insertion order of groups.
+      // Usage:  actions|@groupBy:entity.groupId
+      if (!isArray(value)) return [value];
+      const groups = new Map();
+      for (const item of value) {
+        const groupKey = String(_getByPath(item, arg, rootData, []) ?? '');
+        if (!groups.has(groupKey)) groups.set(groupKey, []);
+        groups.get(groupKey).push(item);
+      }
+      return Array.from(groups.values());
     }
 
     // ── math ───────────────────────────────────────────────────────────────
@@ -268,10 +319,9 @@ const _tokenizePath = (path) => {
       continue;
     }
 
-    // Pipe — flush and add pipe as separator (modifier instructions start with @)
+    // Pipe — flush and collect the full modifier instruction up to the next top-level pipe
     if (ch === '|') {
       if (current) { tokens.push(current); current = ''; }
-      // Collect modifier instruction up to next top-level pipe
       i++;
       let mod = '';
       let bracketDepth = 0;
@@ -332,45 +382,34 @@ const _evalBracket = (inner, value, rootData, contextNodes) => {
   }
 
   // Nested sub-path filter: [subPath.[# == "val"]] or [subPath.[field op val]]
-  // Detected when inner contains a bracket sub-expression with no top-level comparison operator.
-  // We parse to find if the outermost comparison operator is inside a bracket.
-  {
-    // Only try this when there's a sub-bracket inside
-    if (inner.includes('[')) {
-      // Check whether a top-level comparison operator exists outside brackets
-      let depth2 = 0;
-      let hasTopLevelOp = false;
-      const topLevelOpRe = /(==|!=|<=|>=|<|>|!%|%)/;
-      let outerStr = '';
-      for (let ci = 0; ci < inner.length; ci++) {
-        if (inner[ci] === '[') depth2++;
-        else if (inner[ci] === ']') depth2--;
-        else if (depth2 === 0) outerStr += inner[ci];
-      }
-      hasTopLevelOp = topLevelOpRe.test(outerStr);
-
-      if (!hasTopLevelOp && isArray(value)) {
-        // Treat inner as a sub-path that must resolve to a non-empty result
-        return value.filter((item) => {
-          const sub = _getByPath(item, inner, rootData, contextNodes);
-          if (isArray(sub)) return sub.length > 0;
-          return sub !== undefined && sub !== null && sub !== false;
-        });
-      }
+  // Triggered when inner contains a sub-bracket with no top-level comparison operator.
+  if (inner.includes('[')) {
+    let depth = 0;
+    const topLevelOpRe = /(==|!=|<=|>=|<|>|!%|%)/;
+    let outerStr = '';
+    for (let ci = 0; ci < inner.length; ci++) {
+      if (inner[ci] === '[') depth++;
+      else if (inner[ci] === ']') depth--;
+      else if (depth === 0) outerStr += inner[ci];
+    }
+    if (!topLevelOpRe.test(outerStr) && isArray(value)) {
+      return value.filter((item) => {
+        const sub = _getByPath(item, inner, rootData, contextNodes);
+        if (isArray(sub)) return sub.length > 0;
+        return sub !== undefined && sub !== null && sub !== false;
+      });
     }
   }
 
-  // Filter expression: field OP right  (right may be "quoted")
+  // Filter expression: field OP right  (right may be "quoted" or a back-reference)
   const filterMatch = inner.match(/^(.+?)\s*(==|!=|<=|>=|<|>|!%|%)\s*(.+)$/);
   if (filterMatch) {
     const [, fieldExpr, op, rawRight] = filterMatch;
     const fieldTrimmed = fieldExpr.trim();
 
-    // Back-reference on the right side: <<.something
-    const resolveRight = (rawRight, item) => {
-      const trimmed = rawRight.trim();
+    const resolveRight = (raw) => {
+      const trimmed = raw.trim();
       if (trimmed.startsWith('<<')) {
-        // Step back: count '<' characters for back-ref depth
         const depth = trimmed.split('').filter((c) => c === '<').length;
         const backNode = contextNodes[contextNodes.length - depth] ?? rootData;
         const subPath = trimmed.replace(/^<+/, '').replace(/^\./, '');
@@ -385,15 +424,10 @@ const _evalBracket = (inner, value, rootData, contextNodes) => {
       let left;
       if (fieldTrimmed === '#') {
         left = item; // [# == "val"] — check if item equals value
-      } else if (fieldTrimmed.startsWith('[') && fieldTrimmed.endsWith(']')) {
-        // Nested bracket filter: [nets.[# == "fb"]]
-        left = _evalBracket(fieldTrimmed.slice(1, -1), _getByPath(item, '', rootData, contextNodes), rootData, contextNodes);
       } else {
         left = _getByPath(item, fieldTrimmed, rootData, contextNodes);
       }
-
-      const right = resolveRight(rawRight, item);
-      return _compareValues(left, op, right);
+      return _compareValues(left, op, resolveRight(rawRight));
     });
   }
 
@@ -423,11 +457,10 @@ const _compareValues = (left, op, right) => {
 };
 
 /**
- * Evaluate nested multi-query patterns (mirrors Kotlin evaluateNestedQuery).
- * e.g.  nets.#(=="fb") inside friends.[nets.[# == "fb"]]
+ * Evaluate nested multi-query patterns.
+ * e.g.  nets.#(=="fb")  inside  friends.[nets.[# == "fb"]]
  */
 const _evaluateNestedQuery = (element, query, rootData, contextNodes) => {
-  // Simple comparison
   const filterMatch = query.match(/^(.+?)\s*(==|!=|<=|>=|<|>|!%|%)\s*(.+)$/);
   if (filterMatch) {
     const [, fieldExpr, op, rawRight] = filterMatch;
@@ -435,7 +468,6 @@ const _evaluateNestedQuery = (element, query, rootData, contextNodes) => {
     const right = rawRight.trim().replace(/^["']|["']$/g, '');
     return _compareValues(left, op, right);
   }
-  // Nested path + query
   const dotPos = query.indexOf('.');
   if (dotPos !== -1) {
     const subPath = query.slice(0, dotPos);
@@ -563,7 +595,7 @@ const _handleJsonLines = (data, selection, rootData) => {
 
 /**
  * Set a value in a (parsed) object at the given path.
- * Returns the mutated clone.
+ * Returns the mutated clone as a JSON string.
  */
 const _setByPath = (obj, path, value) => {
   const tokens = _tokenizePath(path).filter((t) => !t.startsWith('@'));
@@ -634,9 +666,9 @@ const ResultType = Object.freeze({
 const _createResult = (value) => {
   const exists = value !== undefined && value !== null;
   let type;
-  if (!exists)                type = ResultType.NULL;
-  else if (isArray(value))    type = ResultType.ARRAY;
-  else if (isObject(value))   type = ResultType.OBJECT;
+  if (!exists)                         type = ResultType.NULL;
+  else if (isArray(value))             type = ResultType.ARRAY;
+  else if (isObject(value))            type = ResultType.OBJECT;
   else if (typeof value === 'boolean') type = ResultType.BOOLEAN;
   else if (typeof value === 'number')  type = ResultType.NUMBER;
   else                                 type = ResultType.STRING;

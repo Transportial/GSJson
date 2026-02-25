@@ -514,3 +514,130 @@ test('testCountOnObject — @count works on objects too', () => {
   const count = get(obj, 'name|@count');
   expect(count).toBe(2);
 });
+
+// ─── testFlatMapModifier ──────────────────────────────────────────────────────
+
+test('testFlatMapModifier', () => {
+  const ordersJson = JSON.stringify({
+    orders: [
+      { id: 1, items: ['apple', 'banana'] },
+      { id: 2, items: ['cherry'] },
+      { id: 3, items: ['date', 'elderberry'] },
+    ],
+  });
+
+  // sub-arrays are flattened one level
+  expect(get(ordersJson, 'orders|@flatMap:items')).toEqual(['apple', 'banana', 'cherry', 'date', 'elderberry']);
+
+  // scalar values are collected (one per item)
+  expect(get(selectJson, 'friends|@flatMap:first')).toEqual(['Dale', 'Roger', 'Jane', 'Sjenkie']);
+
+  // items where the path is missing are omitted
+  const sparseJson = JSON.stringify({
+    items: [
+      { name: 'a', tags: ['x', 'y'] },
+      { name: 'b' },
+      { name: 'c', tags: ['z'] },
+    ],
+  });
+  expect(get(sparseJson, 'items|@flatMap:tags')).toEqual(['x', 'y', 'z']);
+
+  // non-array input returns []
+  expect(get(selectJson, 'name|@flatMap:first')).toEqual([]);
+});
+
+// ─── testFilterModifier ───────────────────────────────────────────────────────
+
+test('testFilterModifier', () => {
+  // equality filter
+  const murphys = get(selectJson, 'friends|@filter:last == "Murphy"');
+  expect(Array.isArray(murphys)).toBe(true);
+  expect(murphys).toHaveLength(2);
+  expect(murphys.map((f) => f.first)).toEqual(['Dale', 'Jane']);
+
+  // numeric comparison
+  const older = get(selectJson, 'friends|@filter:age > "45"');
+  expect(older).toHaveLength(2);
+  expect(older.map((f) => f.first)).toEqual(['Roger', 'Jane']);
+
+  // wildcard / like operator
+  const dNames = get(selectJson, 'friends|@filter:first % "D*"');
+  expect(dNames).toHaveLength(1);
+  expect(dNames[0].first).toBe('Dale');
+
+  // chain: filter then extract field list
+  const names = get(selectJson, 'friends|@filter:last == "Murphy"|[#.first]');
+  expect(names).toEqual(['Dale', 'Jane']);
+
+  // non-array input is returned unchanged
+  const notArray = get(selectJson, 'name|@filter:first == "Tom"');
+  expect(notArray).toEqual({ first: 'Tom', last: 'Anderson' });
+});
+
+// ─── testGroupByModifier ──────────────────────────────────────────────────────
+
+test('testGroupByModifier', () => {
+  // group friends by last name — 3 distinct last names
+  const groups = get(selectJson, 'friends|@groupBy:last');
+  expect(Array.isArray(groups)).toBe(true);
+  expect(groups).toHaveLength(3);
+
+  // each group is itself an array
+  groups.forEach((g) => expect(Array.isArray(g)).toBe(true));
+
+  // total members across all groups equals the original array length
+  expect(groups.reduce((sum, g) => sum + g.length, 0)).toBe(4);
+
+  // the Murphy group has 2 members and preserves insertion order
+  const murphyGroup = groups.find((g) => g[0].last === 'Murphy');
+  expect(murphyGroup).not.toBeUndefined();
+  expect(murphyGroup).toHaveLength(2);
+  expect(murphyGroup.map((f) => f.first)).toEqual(['Dale', 'Jane']);
+
+  // non-array input is wrapped in a single-element outer array
+  const nonArray = get(selectJson, 'name|@groupBy:first');
+  expect(Array.isArray(nonArray)).toBe(true);
+  expect(nonArray).toHaveLength(1);
+});
+
+// ─── testJoinQuotedSeparator ──────────────────────────────────────────────────
+
+test('testJoinQuotedSeparator — @join strips surrounding quotes from separator', () => {
+  const numbersJson = JSON.stringify({ scores: [10, 20, 30, 40, 50] });
+
+  // quoted multi-char separator: @join:", "
+  expect(get(numbersJson, 'scores|@join:", "')).toBe('10, 20, 30, 40, 50');
+
+  // quoted separator with spaces: @join:" | "
+  expect(get(numbersJson, 'scores|@join:" | "')).toBe('10 | 20 | 30 | 40 | 50');
+
+  // unquoted single-char separator still works: @join:-
+  expect(get(numbersJson, 'scores|@join:-')).toBe('10-20-30-40-50');
+
+  // no separator defaults to comma
+  expect(get(numbersJson, 'scores|@join')).toBe('10,20,30,40,50');
+});
+
+// ─── testUniqueDistinctModifier ───────────────────────────────────────────────
+
+test('testUniqueDistinctModifier', () => {
+  const dupJson = JSON.stringify({ tags: ['a', 'b', 'a', 'c', 'b', 'c'] });
+
+  // @unique removes duplicates, preserves insertion order
+  expect(get(dupJson, 'tags|@unique')).toEqual(['a', 'b', 'c']);
+
+  // @distinct is an alias
+  expect(get(dupJson, 'tags|@distinct')).toEqual(['a', 'b', 'c']);
+
+  // works on numeric arrays
+  const numJson = JSON.stringify({ values: [1, 2, 2, 3, 1, 4] });
+  expect(get(numJson, 'values|@unique')).toEqual([1, 2, 3, 4]);
+
+  // non-array input is returned unchanged
+  expect(get(selectJson, 'name|@unique')).toEqual({ first: 'Tom', last: 'Anderson' });
+
+  // chained: extract all last names, deduplicate
+  const lastNames = get(selectJson, 'friends|@unique');
+  expect(lastNames).not.toBeNull(); // friends array has no dupes, all 4 remain
+  expect(lastNames).toHaveLength(4);
+});
