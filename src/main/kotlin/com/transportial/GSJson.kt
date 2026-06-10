@@ -87,6 +87,16 @@ object GSJson {
         }
         return result ?: defaultValue
     }
+
+    fun get(json: Any, selection: String): Any? {
+        return when (json) {
+            is String -> get(json, selection)
+            is JSONObject -> get(json, selection)
+            is JSONArray -> get(json, selection)
+            is JsonNode -> get(json, selection)
+            else -> null
+        }
+    }
     
     /**
      * Getting JSON result from string and selection path
@@ -288,6 +298,16 @@ object GSJson {
     fun set(json: JsonNode, selection: String, value: Any): Any {
         inputType = DataType.JACKSON
         return parseAndSet(json, selection, value)
+    }
+
+    fun set(json: Any, selection: String, value: Any): Any {
+        return when (json) {
+            is String -> set(json, selection, value)
+            is JSONObject -> set(json, selection, value)
+            is JSONArray -> set(json, selection, value)
+            is JsonNode -> set(json, selection, value)
+            else -> throw IllegalArgumentException("Unsupported JSON input type: ${json::class.qualifiedName}")
+        }
     }
 
 
