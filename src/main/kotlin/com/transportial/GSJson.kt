@@ -29,6 +29,30 @@ object GSJson {
     private var outputType: DataType = DataType.STRING
 
     /**
+     * Parse a JSON string into the utility's native Jackson representation.
+     *
+     * @param json: as string
+     *
+     * @return parsed JSON as JsonNode
+     */
+    fun parse(json: String): JsonNode {
+        return objectMapper.readTree(json)
+    }
+
+    /**
+     * Parse a JSON string into one of the supported output data types.
+     *
+     * @param json: as string
+     * @param outputType: The requested parsed output type
+     *
+     * @return parsed JSON according to the requested output type
+     */
+    fun parse(json: String, outputType: DataType): Any {
+        val parsedJson = parse(json)
+        return convertJsonNode(parsedJson, outputType)
+    }
+
+    /**
      * Getting JSON value from string and selection path
      *
      * @param json: as string
@@ -534,6 +558,21 @@ object GSJson {
             }
 
             else -> null
+        }
+    }
+
+    /**
+     * Convert JsonNode to one of the supported public data representations.
+     */
+    private fun convertJsonNode(json: JsonNode, dataType: DataType): Any {
+        return when (dataType) {
+            DataType.STRING -> json.toString()
+            DataType.JACKSON -> json
+            DataType.GSON -> when (json) {
+                is ArrayNode -> JSONArray(json.toString())
+                is ObjectNode -> JSONObject(json.toString())
+                else -> json.toString()
+            }
         }
     }
 

@@ -1,10 +1,13 @@
 package com.transportial
 
+import com.fasterxml.jackson.databind.JsonNode
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
+import org.json.JSONArray
+import org.json.JSONObject
 
 
 internal object GSJsonTest {
@@ -68,6 +71,27 @@ internal object GSJsonTest {
     fun testSpecialSelectors() {
         val constant = GSJson.get(selectJson, "\"value\"")
         assertEquals("value", constant, "Constant should be \"value\"")
+    }
+
+    @Test
+    fun testParseJsonString() {
+        val parsed = GSJson.parse(selectJson)
+
+        assertEquals("Tom", parsed.get("name").get("first").asText(), "Default parse should return a usable JsonNode")
+        assertEquals("Tom", GSJson.get(parsed, "name.first"), "Parsed JsonNode should work with get")
+    }
+
+    @Test
+    fun testParseJsonStringWithOutputType() {
+        val parsedString = GSJson.parse(selectJson, GSJson.DataType.STRING)
+        val parsedObject = GSJson.parse(selectJson, GSJson.DataType.GSON)
+        val parsedNode = GSJson.parse(selectJson, GSJson.DataType.JACKSON)
+        val parsedArray = GSJson.parse("""["Sara","Alex","Jack"]""", GSJson.DataType.GSON)
+
+        assertEquals(GSJson.parse(selectJson).toString(), parsedString, "STRING parse should return compact JSON")
+        assertTrue(parsedObject is JSONObject, "GSON object parse should return JSONObject")
+        assertTrue(parsedNode is JsonNode, "JACKSON parse should return JsonNode")
+        assertTrue(parsedArray is JSONArray, "GSON array parse should return JSONArray")
     }
 
     @Test
