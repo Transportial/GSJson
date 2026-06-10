@@ -15,7 +15,7 @@ object Meta {
 }
 
 group = "com.transportial"
-version = "0.1.8"
+version = "0.1.9"
 
 repositories {
     mavenCentral()
@@ -31,6 +31,40 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+val updateReadmeVersion by tasks.registering {
+    group = "documentation"
+    description = "Updates README dependency examples from the Gradle project version."
+
+    val readmeFile = layout.projectDirectory.file("README.md")
+    inputs.property("projectVersion", project.version.toString())
+    outputs.file(readmeFile)
+
+    doLast {
+        val currentVersion = project.version.toString()
+        val dependencyNotation = "${project.group}:${Meta.name}:$currentVersion"
+        val readme = readmeFile.asFile
+        val updatedContent = readme.readText()
+            .replace(
+                Regex("<version>[^<]+</version>"),
+                "<version>$currentVersion</version>"
+            )
+            .replace(
+                Regex("""implementation\s+(['"])${Regex.escape(project.group.toString())}:[^:'"]+:[^'"]+\1"""),
+                "implementation '$dependencyNotation'"
+            )
+
+        readme.writeText(updatedContent)
+    }
+}
+
+tasks.named("build") {
+    dependsOn(updateReadmeVersion)
+}
+
+tasks.matching { it.name.startsWith("publish") }.configureEach {
+    dependsOn(updateReadmeVersion)
 }
 
 kotlin {

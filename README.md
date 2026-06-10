@@ -22,21 +22,21 @@ const value = GSJson.get(data, 'name.first');
 
 ### Kotlin / Java (JVM)
 
-Replace `LATEST_VERSION` with the actual latest version.
+Use the current published version from the examples below.
 
 **Maven:**
 ```xml
 <dependency>
     <groupId>com.transportial</groupId>
-    <artifactId>gsjson</artifactId>
-    <version>LATEST_VERSION</version>
+    <artifactId>GSJson</artifactId>
+    <version>0.1.9</version>
 </dependency>
 ```
 
 **Gradle:**
 ```groovy
 dependencies {
-    implementation 'com.transportial:gsjson:LATEST_VERSION'
+    implementation 'com.transportial:GSJson:0.1.9'
 }
 ```
 
