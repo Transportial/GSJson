@@ -125,6 +125,22 @@ internal object GSJsonTest {
         val friendsOne = GSJson.set("", "friends.[0].first", "Dale")
         assertEquals("""{"friends":[{"first":"Dale"}]}""", friendsOne, "Friend one, first name, should be \"Dale\"")
     }
+
+    @Test
+    fun testSetReturnsSameJsonFormatAsInput() {
+        val stringResult = GSJson.set("" as Any, "name.first", "Tom")
+        val objectResult = GSJson.set(JSONObject("{}") as Any, "name.first", "Tom")
+        val arrayResult = GSJson.set(JSONArray("[{}]") as Any, "[0].name", "Tom")
+        val nodeResult = GSJson.set(GSJson.parse("{}") as Any, "name.first", "Tom")
+
+        assertEquals("""{"name":{"first":"Tom"}}""", stringResult, "String input should return compact JSON string")
+        assertTrue(objectResult is JSONObject, "JSONObject input should return JSONObject")
+        assertEquals("Tom", (objectResult as JSONObject).getJSONObject("name").getString("first"), "JSONObject result should contain set value")
+        assertTrue(arrayResult is JSONArray, "JSONArray input should return JSONArray")
+        assertEquals("Tom", (arrayResult as JSONArray).getJSONObject(0).getString("name"), "JSONArray result should contain set value")
+        assertTrue(nodeResult is JsonNode, "JsonNode input should return JsonNode")
+        assertEquals("Tom", (nodeResult as JsonNode).get("name").get("first").asText(), "JsonNode result should contain set value")
+    }
     
     @Test
     fun testWildcardSelectors() {

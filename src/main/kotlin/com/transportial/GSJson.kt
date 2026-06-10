@@ -255,7 +255,8 @@ object GSJson {
      */
     fun set(json: String, selection: String, value: Any): String {
         inputType = DataType.STRING
-        return parseAndSet(objectMapper.readTree(json), selection, value).toString()
+        val jsonNode = if (json.isBlank()) objectMapper.createObjectNode() else objectMapper.readTree(json)
+        return parseAndSet(jsonNode, selection, value).toString()
     }
 
     /**
@@ -267,9 +268,10 @@ object GSJson {
      *
      * @return Json structure in JSONObject format
      */
-    fun set(json: JSONObject, selection: String, value: Any): Any {
+    fun set(json: JSONObject, selection: String, value: Any): JSONObject {
         inputType = DataType.GSON
-        return parseAndSet(objectMapper.readTree(json.toString()), selection, value)
+        val updatedJson = parseAndSet(objectMapper.readTree(json.toString()), selection, value)
+        return JSONObject(updatedJson.toString())
     }
 
     /**
@@ -281,9 +283,10 @@ object GSJson {
      *
      * @return Json structure in JSONArray format
      */
-    fun set(json: JSONArray, selection: String, value: Any): Any {
+    fun set(json: JSONArray, selection: String, value: Any): JSONArray {
         inputType = DataType.GSON
-        return parseAndSet(objectMapper.readTree(json.toString()), selection, value)
+        val updatedJson = parseAndSet(objectMapper.readTree(json.toString()), selection, value)
+        return JSONArray(updatedJson.toString())
     }
 
     /**
@@ -295,7 +298,7 @@ object GSJson {
      *
      *
      */
-    fun set(json: JsonNode, selection: String, value: Any): Any {
+    fun set(json: JsonNode, selection: String, value: Any): JsonNode {
         inputType = DataType.JACKSON
         return parseAndSet(json, selection, value)
     }
