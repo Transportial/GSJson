@@ -141,6 +141,21 @@ internal object GSJsonTest {
         assertTrue(nodeResult is JsonNode, "JsonNode input should return JsonNode")
         assertEquals("Tom", (nodeResult as JsonNode).get("name").get("first").asText(), "JsonNode result should contain set value")
     }
+
+    @Test
+    fun testSetAutoArrayAccumulatesSiblingFieldsOnSameElement() {
+        var result: Any = JSONObject()
+
+        result = GSJson.set(result, "documents.[].name", "POD-1")
+        result = GSJson.set(result, "documents.[].content.uri", "http://img/1.png")
+
+        val documents = (result as JSONObject).getJSONArray("documents")
+        val document = documents.getJSONObject(0)
+
+        assertEquals(1, documents.length(), "Sibling [] paths should fill one array element")
+        assertEquals("POD-1", document.getString("name"), "Document should contain the first sibling field")
+        assertEquals("http://img/1.png", document.getJSONObject("content").getString("uri"), "Document should contain the nested sibling field")
+    }
     
     @Test
     fun testWildcardSelectors() {

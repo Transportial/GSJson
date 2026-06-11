@@ -444,7 +444,7 @@ object GSJson {
                         val jsonIndex =
                             getJsonArrayIndex(currentNode as ArrayNode, instruction, previousNodes, previousArrayLevel)
 
-                        if ((currentNode as ArrayNode).has(jsonIndex)) {
+                        if (!(currentNode as ArrayNode).has(jsonIndex)) {
                             currentNode = addJsonPart(
                                 instruction,
                                 (currentNode as ArrayNode),
