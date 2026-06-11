@@ -445,28 +445,32 @@ object GSJson {
                             getJsonArrayIndex(currentNode as ArrayNode, instruction, previousNodes, previousArrayLevel)
 
                         if (!(currentNode as ArrayNode).has(jsonIndex)) {
-                            currentNode = addJsonPart(
-                                instruction,
-                                (currentNode as ArrayNode),
-                                if (isArrayInstruction(nextInstruction)) objectMapper.createArrayNode() else objectMapper.createObjectNode(),
-                                jsonIndex
+                            // Pad with nulls so that insert lands at exactly jsonIndex
+                            val arr = currentNode as ArrayNode
+                            while (arr.size() < jsonIndex) {
+                                arr.addNull()
+                            }
+                            arr.add(
+                                if (isArrayInstruction(nextInstruction)) objectMapper.createArrayNode()
+                                else objectMapper.createObjectNode()
                             )
                         }
 
                         currentNode = if (currentNode is ArrayNode) {
-                            (currentNode as ArrayNode).get(jsonIndex) ?: addJsonPart(
-                                instruction,
-                                currentNode,
-                                if (isArrayInstruction(nextInstruction)) objectMapper.createArrayNode() else objectMapper.createObjectNode(),
-                                jsonIndex
-                            ).get(jsonIndex)
+                            (currentNode as ArrayNode).get(jsonIndex)
+                                ?: objectMapper.createObjectNode().also {
+                                    (currentNode as ArrayNode).insert(jsonIndex, it)
+                                }
                         } else {
-                            (currentNode as ObjectNode).get(cleanInstruction(instruction)) ?: addJsonPart(
-                                cleanInstruction(instruction),
-                                currentNode,
-                                if (isArrayInstruction(nextInstruction)) objectMapper.createArrayNode() else objectMapper.createObjectNode(),
-                                jsonIndex
-                            ).get(cleanInstruction(instruction))
+                            (currentNode as ObjectNode).get(cleanInstruction(instruction))
+                                ?: objectMapper.createObjectNode().also {
+                                    addJsonPart(
+                                        cleanInstruction(instruction),
+                                        currentNode,
+                                        if (isArrayInstruction(nextInstruction)) objectMapper.createArrayNode() else objectMapper.createObjectNode(),
+                                        jsonIndex
+                                    )
+                                }
                         }
 
                         previousNodes.add(currentNode)
