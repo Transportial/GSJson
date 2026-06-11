@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 import org.json.JSONArray
 import org.json.JSONObject
+import org.junit.jupiter.api.DisplayName
 
 
 internal object GSJsonTest {
@@ -730,5 +731,47 @@ internal object GSJsonTest {
         // chained: extract all last names and deduplicate
         val uniqueLastNames = GSJson.get(selectJson, "friends|[#.last]|@unique")
         assertEquals("""["Murphy","Craig","Name"]""", uniqueLastNames, "Should deduplicate last names")
+    }
+
+    @Test
+    @DisplayName("sparse array: element inserted at index > 0 pads preceding slots with null")
+    fun sparseArrayPadsWithNull() {
+        val result = GSJson.set(JSONObject(), "documents.[1].name", "X")
+        val documents = (result as JSONObject).getJSONArray("documents")
+        assertEquals(2, documents.length())
+        assertTrue(documents.isNull(0))
+        assertEquals("X", documents.getJSONObject(1).getString("name"))
+    }
+
+    @Test
+    @DisplayName("sparse array: element inserted at index 3 pads indices 0-2 with null")
+    fun sparseArrayPadsMultipleNulls() {
+        val result = GSJson.set(JSONObject(), "documents.[3].name", "POD")
+        val documents = (result as JSONObject).getJSONArray("documents")
+        assertEquals(4, documents.length())
+        assertTrue(documents.isNull(0))
+        assertTrue(documents.isNull(1))
+        assertTrue(documents.isNull(2))
+        assertEquals("POD", documents.getJSONObject(3).getString("name"))
+    }
+
+    @Test
+    @DisplayName("sparse array: nested path at high index does not throw NPE")
+    fun sparseArrayNestedPathNoNPE() {
+        val result = GSJson.set(JSONObject(), "actions.[2].name", "test")
+        val actions = (result as JSONObject).getJSONArray("actions")
+        assertEquals(3, actions.length())
+        assertTrue(actions.isNull(0))
+        assertTrue(actions.isNull(1))
+        assertEquals("test", actions.getJSONObject(2).getString("name"))
+    }
+
+    @Test
+    @DisplayName("sparse array: index 0 still works normally without padding")
+    fun indexZeroNoPadding() {
+        val result = GSJson.set(JSONObject(), "documents.[0].name", "X")
+        val documents = (result as JSONObject).getJSONArray("documents")
+        assertEquals(1, documents.length())
+        assertEquals("X", documents.getJSONObject(0).getString("name"))
     }
 }

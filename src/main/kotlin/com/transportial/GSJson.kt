@@ -456,22 +456,7 @@ object GSJson {
                             )
                         }
 
-                        currentNode = if (currentNode is ArrayNode) {
-                            (currentNode as ArrayNode).get(jsonIndex)
-                                ?: objectMapper.createObjectNode().also {
-                                    (currentNode as ArrayNode).insert(jsonIndex, it)
-                                }
-                        } else {
-                            (currentNode as ObjectNode).get(cleanInstruction(instruction))
-                                ?: objectMapper.createObjectNode().also {
-                                    addJsonPart(
-                                        cleanInstruction(instruction),
-                                        currentNode,
-                                        if (isArrayInstruction(nextInstruction)) objectMapper.createArrayNode() else objectMapper.createObjectNode(),
-                                        jsonIndex
-                                    )
-                                }
-                        }
+                        currentNode = currentNode.get(jsonIndex)!!
 
                         previousNodes.add(currentNode)
 
