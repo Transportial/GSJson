@@ -358,41 +358,50 @@ object GSJson {
                     }
 
                     currentNode is ArrayNode && instructionIndex == instructions.size - 1 -> {
+                        val arr = currentNode as ArrayNode
                         val jsonIndex = if (instructionIndex == 0) currentArrayLevel else getJsonArrayIndex(
-                            currentNode as ArrayNode,
+                            arr,
                             instruction,
                             previousNodes,
                             currentArrayLevel
                         )
-                        if ((currentNode as ArrayNode).has(jsonIndex)) {
-                            if (isArrayInstruction(instruction)) {
-                                setValue(currentNode as ArrayNode, null, value)
+                        if (isArrayInstruction(instruction)) {
+                            // Distinguish an explicit index ([0], [1], [age==44]) from an
+                            // auto-array append ([]) which has no index and should append.
+                            val explicitIndex = instruction.any { it.isDigit() } || isComparisonInstruction(instruction)
+                            if (!explicitIndex) {
+                                setValue(arr, null, value)
                             } else {
+                                val existing = if (jsonIndex < arr.size()) arr.get(jsonIndex) else null
+                                if (existing != null && !existing.isNull) {
+                                    // Genuine existing value → concatenate (mirrors object-key behaviour).
+                                    setValueAtIndex(arr, jsonIndex, "${getValue(existing)}$value")
+                                } else {
+                                    // Empty or null-padding slot → place/replace at the exact index.
+                                    setValueAtIndex(arr, jsonIndex, value)
+                                }
+                            }
+                        } else {
+                            if (arr.has(jsonIndex)) {
                                 setValue(
-                                    currentNode as ArrayNode,
+                                    arr,
                                     null,
                                     setValue(objectMapper.createObjectNode(), instruction, value)
                                 )
-                            }
-
-                        } else {
-                            if (isArrayInstruction(instruction)) {
-                                val prevValue = (currentNode as ArrayNode).get(jsonIndex)?.toString() ?: ""
-                                setValue(currentNode as ArrayNode, jsonIndex, "$prevValue$value")
                             } else {
-                                if (((currentNode as ArrayNode).get(jsonIndex) as? ObjectNode)?.has(instruction) == true) {
-                                    val prevValue = ((currentNode as ArrayNode).get(jsonIndex) as? ObjectNode)
+                                if ((arr.get(jsonIndex) as? ObjectNode)?.has(instruction) == true) {
+                                    val prevValue = (arr.get(jsonIndex) as? ObjectNode)
                                         ?: objectMapper.createObjectNode()
                                     val prevPropertyValue = prevValue?.get(instruction).toString()
 
-                                    (currentNode as ArrayNode).add(
+                                    arr.add(
                                         prevValue?.put(instruction, "$prevPropertyValue$value")
                                     )
                                 } else {
-                                    val prevValue = (currentNode as ArrayNode).get(jsonIndex) as? ObjectNode
+                                    val prevValue = arr.get(jsonIndex) as? ObjectNode
                                         ?: objectMapper.createObjectNode()
 
-                                    (currentNode as ArrayNode).add(
+                                    arr.add(
                                         prevValue.put(instruction, value.toString())
                                     )
                                 }
@@ -648,6 +657,19 @@ object GSJson {
     }
 
     /**
+     * Place a scalar value at an exact array index, padding any missing lower indices
+     * with null and REPLACING the slot if it already exists (unlike insert(), which
+     * shifts existing elements and never pads).
+     */
+    private fun setValueAtIndex(json: ArrayNode, index: Int, value: Any?): JsonNode {
+        if (value == null) return json
+        while (json.size() < index) json.addNull()
+        val node: JsonNode = objectMapper.valueToTree(if (value is Instant) value.toString() else value)
+        if (index >= json.size()) json.add(node) else json.set(index, node)
+        return json
+    }
+
+    /**
      * Split selection into instructions
      *
      * @param selection: the selection input
@@ -709,6 +731,9 @@ object GSJson {
 
                 instruction
             }
+            // Drop empty tokens (e.g. from a leading/trailing/duplicate dot like ".fruits.[0]")
+            // so downstream index math (instructions.size, getOrNull) stays consistent.
+            .filter { it.isNotBlank() }
     }
 
     /**

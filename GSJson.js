@@ -629,14 +629,15 @@ const _setByPath = (obj, path, value) => {
   if (last.startsWith('[') && last.endsWith(']')) {
     const idx = parseInt(last.slice(1, -1), 10);
     if (isArray(current)) {
-      if (current[idx] !== undefined) {
+      // null entries are padding placeholders, not real values → overwrite them.
+      if (current[idx] !== undefined && current[idx] !== null) {
         current[idx] = String(current[idx]) + String(value);
       } else {
         current[idx] = value;
       }
     }
   } else {
-    if (current[last] !== undefined) {
+    if (current[last] !== undefined && current[last] !== null) {
       current[last] = String(current[last]) + String(value);
     } else {
       current[last] = value;

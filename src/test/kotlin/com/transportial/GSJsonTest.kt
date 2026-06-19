@@ -128,6 +128,35 @@ internal object GSJsonTest {
     }
 
     @Test
+    fun settingWithLeadingDotDoesNotThrow() {
+        // A leading dot produces an empty instruction token; it must be ignored, not throw.
+        val result = GSJson.set("", ".fruits.[0]", "apple")
+        assertEquals("""{"fruits":["apple"]}""", result, "Leading dot should be ignored")
+    }
+
+    @Test
+    fun settingFillsNullPaddedArraySlot() {
+        // Setting a higher index first pads lower indices with null.
+        val padded = GSJson.set("", "fruits.[1]", "apple")
+        assertEquals("""{"fruits":[null,"apple"]}""", padded, "Index 0 should be null-padded")
+
+        // Setting the null-padded slot must REPLACE the placeholder, not append/concat null.
+        val filled = GSJson.set(padded, "fruits.[0]", "pear")
+        assertEquals("""{"fruits":["pear","apple"]}""", filled, "Null slot should be replaced by \"pear\"")
+    }
+
+    @Test
+    fun settingConcatenatesExistingArrayIndex() {
+        // Two sets on the SAME, already-populated index concatenate (append) by design,
+        // mirroring the object-key behaviour in settingObjectJsonValues.
+        val first = GSJson.set("", "fruits.[0]", "apple")
+        assertEquals("""{"fruits":["apple"]}""", first)
+
+        val second = GSJson.set(first, "fruits.[0]", "pear")
+        assertEquals("""{"fruits":["applepear"]}""", second, "Existing index should concatenate")
+    }
+
+    @Test
     fun testSetReturnsSameJsonFormatAsInput() {
         val stringResult = GSJson.set("" as Any, "name.first", "Tom")
         val objectResult = GSJson.set(JSONObject("{}") as Any, "name.first", "Tom")

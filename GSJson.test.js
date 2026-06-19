@@ -95,6 +95,35 @@ test('settingArrayJsonValues', () => {
   expect(JSON.parse(friendsOne)).toEqual({ friends: [{ first: 'Dale' }] });
 });
 
+// ─── settingConcatenatesExistingValues (intended behaviour) ───────────────────
+
+test('settingConcatenatesExistingArrayIndex', () => {
+  // Two sets on the SAME, already-populated index concatenate (append) by design.
+  let json = set('', 'fruits.[0]', 'apple');
+  expect(JSON.parse(json)).toEqual({ fruits: ['apple'] });
+
+  json = set(json, 'fruits.[0]', 'pear');
+  expect(JSON.parse(json)).toEqual({ fruits: ['applepear'] });
+});
+
+// ─── settingOverwritesNullPadding ─────────────────────────────────────────────
+
+test('settingFillsNullPaddedArraySlot', () => {
+  // Setting a higher index first pads lower indices with null.
+  let json = set('', 'fruits.[1]', 'apple');
+  expect(JSON.parse(json)).toEqual({ fruits: [null, 'apple'] });
+
+  // Setting the null-padded slot must REPLACE the placeholder, not concat "null".
+  json = set(json, 'fruits.[0]', 'pear');
+  expect(JSON.parse(json)).toEqual({ fruits: ['pear', 'apple'] });
+});
+
+test('settingFillsNullObjectKey', () => {
+  // A key that was explicitly set to null is a placeholder → overwrite, not concat.
+  let json = set('{"name":{"first":null}}', 'name.first', 'Tom');
+  expect(JSON.parse(json)).toEqual({ name: { first: 'Tom' } });
+});
+
 // ─── testWildcardSelectors ────────────────────────────────────────────────────
 
 test('testWildcardSelectors', () => {
