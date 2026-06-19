@@ -15,7 +15,7 @@ object Meta {
 }
 
 group = "com.transportial"
-version = "1.2.4"
+version = "1.2.5"
 
 repositories {
     mavenCentral()

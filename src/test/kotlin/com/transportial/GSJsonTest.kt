@@ -154,6 +154,16 @@ internal object GSJsonTest {
 
         val second = GSJson.set(first, "fruits.[0]", "pear")
         assertEquals("""{"fruits":["applepear"]}""", second, "Existing index should concatenate")
+
+        var third = "{}"
+        third = GSJson.set(third, "actions.[1].name", "second action")
+        third = GSJson.set(third, "actions.[0].name", "first action")
+
+        assertEquals(
+            """{"actions":[{"name":"first action"},{"name":"second action"}]}""",
+            third,
+            "Filling a null-padded array slot should create the object, not leave null"
+        )
     }
 
     @Test

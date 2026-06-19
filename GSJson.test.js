@@ -116,6 +116,10 @@ test('settingFillsNullPaddedArraySlot', () => {
   // Setting the null-padded slot must REPLACE the placeholder, not concat "null".
   json = set(json, 'fruits.[0]', 'pear');
   expect(JSON.parse(json)).toEqual({ fruits: ['pear', 'apple'] });
+
+  let nested = set('{}', 'actions.[1].name', 'second action');
+  nested = set(nested, 'actions.[0].name', 'first action');
+  expect(JSON.parse(nested)).toEqual({ actions: [{ name: 'first action' }, { name: 'second action' }] });
 });
 
 test('settingFillsNullObjectKey', () => {

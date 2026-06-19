@@ -325,11 +325,21 @@ const _tokenizePath = (path) => {
       i++;
       let mod = '';
       let bracketDepth = 0;
+      let quote = null; // track quoted separators so a '|' inside quotes isn't a split point
       while (i < path.length) {
-        if (path[i] === '[') bracketDepth++;
-        if (path[i] === ']') bracketDepth--;
-        if (path[i] === '|' && bracketDepth === 0) break;
-        mod += path[i];
+        const c = path[i];
+        if (quote) {
+          if (c === quote) quote = null;
+        } else if (c === '"' || c === "'") {
+          quote = c;
+        } else if (c === '[') {
+          bracketDepth++;
+        } else if (c === ']') {
+          bracketDepth--;
+        } else if (c === '|' && bracketDepth === 0) {
+          break;
+        }
+        mod += c;
         i++;
       }
       if (mod) tokens.push(mod.trim());

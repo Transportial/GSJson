@@ -450,22 +450,25 @@ object GSJson {
                     }
 
                     currentNode is ArrayNode -> {
+                        val arr = currentNode as ArrayNode
                         val jsonIndex =
-                            getJsonArrayIndex(currentNode as ArrayNode, instruction, previousNodes, previousArrayLevel)
+                            getJsonArrayIndex(arr, instruction, previousNodes, previousArrayLevel)
 
-                        if (!(currentNode as ArrayNode).has(jsonIndex)) {
-                            // Pad with nulls so that insert lands at exactly jsonIndex
-                            val arr = currentNode as ArrayNode
+                        val existing = if (jsonIndex < arr.size()) arr.get(jsonIndex) else null
+                        if (existing == null || existing.isNull) {
+                            // Slot is missing or a null padding placeholder → put a fresh
+                            // container there. Pad with nulls so it lands at exactly jsonIndex,
+                            // and replace (set) rather than insert so an existing null is overwritten.
                             while (arr.size() < jsonIndex) {
                                 arr.addNull()
                             }
-                            arr.add(
+                            val container: JsonNode =
                                 if (isArrayInstruction(nextInstruction)) objectMapper.createArrayNode()
                                 else objectMapper.createObjectNode()
-                            )
+                            if (jsonIndex >= arr.size()) arr.add(container) else arr.set(jsonIndex, container)
                         }
 
-                        currentNode = currentNode.get(jsonIndex)!!
+                        currentNode = arr.get(jsonIndex)!!
 
                         previousNodes.add(currentNode)
 
