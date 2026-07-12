@@ -655,7 +655,17 @@ object GSJson {
             is Short -> if (index == null) json.add(value) else json.insert(index, value)
             is Long -> if (index == null) json.add(value) else json.insert(index, value)
             is ByteArray -> if (index == null) json.add(value) else json.insert(index, value)
-            else -> json
+            // Structured values (objects/arrays) — convert to a JsonNode and add/insert as a
+            // node rather than silently dropping them. Enables appending a whole object element
+            // via an auto-array path like "identifiers.[]".
+            else -> {
+                val node: JsonNode = when (value) {
+                    is JsonNode -> value
+                    is JSONObject, is JSONArray -> objectMapper.readTree(value.toString())
+                    else -> objectMapper.valueToTree(value)
+                }
+                if (index == null) json.add(node) else json.insert(index, node)
+            }
         }
     }
 
@@ -797,7 +807,11 @@ object GSJson {
                 .indexOfFirst {
                     compareSelectors(it, instruction, contextNodes, default)
                 }
-            return if (index >= 0) index else default
+            // On a write, a comparison selector that matches nothing must resolve to a NEW
+            // slot at the end of the array (append) — never fall back to index 0, which would
+            // silently overwrite the first existing element. Reads never reach here for a
+            // comparison (selectArrayElement filters those out before calling this).
+            return if (index >= 0) index else jsonArray.size()
         }
 
         val numberString = instruction.filter { it.isDigit() }

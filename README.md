@@ -29,14 +29,14 @@ Use the current published version from the examples below.
 <dependency>
     <groupId>com.transportial</groupId>
     <artifactId>GSJson</artifactId>
-    <version>0.2.3</version>
+    <version>1.2.6</version>
 </dependency>
 ```
 
 **Gradle:**
 ```groovy
 dependencies {
-    implementation 'com.transportial:GSJson:0.2.3'
+    implementation 'com.transportial:GSJson:1.2.6'
 }
 ```
 

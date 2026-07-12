@@ -196,7 +196,54 @@ internal object GSJsonTest {
         assertEquals("POD-1", document.getString("name"), "Document should contain the first sibling field")
         assertEquals("http://img/1.png", document.getJSONObject("content").getString("uri"), "Document should contain the nested sibling field")
     }
-    
+
+    @Test
+    fun settingNonMatchingComparisonFilterAppendsInsteadOfOverwritingIndexZero() {
+        // A comparison selector that matches no existing element must create a NEW element at
+        // the end of the array — never fall back to index 0 and clobber an existing entry.
+        val existing = """{"identifiers":[{"system":"A","value":"a-1"}]}"""
+
+        val afterSystem = GSJson.set(existing, """identifiers.[system == "B"].system""", "B")
+        val result = GSJson.set(afterSystem, """identifiers.[system == "B"].value""", "b-1")
+
+        val identifiers = JSONObject(result).getJSONArray("identifiers")
+        assertEquals(2, identifiers.length(), "Non-matching filter must append, not overwrite spot #1")
+        assertEquals("A", identifiers.getJSONObject(0).getString("system"), "Existing identifier must be preserved")
+        assertEquals("a-1", identifiers.getJSONObject(0).getString("value"), "Existing identifier value must be untouched")
+        assertEquals("B", identifiers.getJSONObject(1).getString("system"), "New identifier appended at the end")
+        assertEquals("b-1", identifiers.getJSONObject(1).getString("value"), "Sibling write must target the appended element")
+    }
+
+    @Test
+    fun settingMatchingComparisonFilterUpdatesExistingElement() {
+        // When an element DOES match, the write must target that element (update), not append.
+        val existing = """{"identifiers":[{"system":"A","value":"old"},{"system":"B","value":"keep"}]}"""
+
+        val result = GSJson.set(existing, """identifiers.[system == "A"].value""", "new")
+
+        val identifiers = JSONObject(result).getJSONArray("identifiers")
+        assertEquals(2, identifiers.length(), "Matching filter must not append a duplicate")
+        assertEquals("keep", identifiers.getJSONObject(1).getString("value"), "Non-matching sibling stays intact")
+    }
+
+    @Test
+    fun settingAppendsWholeObjectViaAutoArray() {
+        // An object value on an auto-array path must be appended as a full element rather than
+        // being silently dropped — enables "identifiers.[]" to add a complete identifier.
+        val existing = """{"identifiers":[{"system":"A","value":"a-1"}]}"""
+
+        val identifier = JSONObject().put("name", "Sys B").put("system", "B").put("value", "b-1")
+        val result = GSJson.set(existing, "identifiers.[]", identifier)
+
+        val identifiers = JSONObject(result).getJSONArray("identifiers")
+        assertEquals(2, identifiers.length(), "Object should be appended, not dropped")
+        assertEquals("A", identifiers.getJSONObject(0).getString("system"), "Existing identifier preserved")
+        val appended = identifiers.getJSONObject(1)
+        assertEquals("Sys B", appended.getString("name"))
+        assertEquals("B", appended.getString("system"))
+        assertEquals("b-1", appended.getString("value"))
+    }
+
     @Test
     fun testWildcardSelectors() {
         val testJson = """
