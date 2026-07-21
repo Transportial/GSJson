@@ -313,6 +313,61 @@ object GSJson {
         }
     }
 
+    /**
+     * Batch variant of [set]: apply an ordered list of (selection, value) pairs to one document.
+     *
+     * The [String]/[JSONObject]/[JSONArray] single-value overloads serialize the whole document to a
+     * string and re-parse it on every call, so folding N mappings by repeatedly calling `set` is
+     * O(N × documentSize) — quadratic for large arrays. This variant parses ONCE, applies every
+     * mapping in place on the mutable Jackson tree, and serializes back ONCE, making a full apply
+     * linear in the number of mappings. The result is identical to applying the pairs sequentially,
+     * in the given order.
+     *
+     * A [List] of pairs is used rather than a [Map] on purpose: mapping application is
+     * order-dependent and the same selection may legitimately appear more than once (e.g. repeated
+     * `[]` appends, or concatenations onto the same path), neither of which a [Map] can express.
+     *
+     * @param json the base document
+     * @param selections ordered (selection, value) pairs; order and duplicate selections are preserved
+     * @return the updated document in the same representation as [json]
+     */
+    fun set(json: JsonNode, selections: List<Pair<String, Any>>): JsonNode {
+        inputType = DataType.JACKSON
+        return selections.fold(json) { node, (selection, value) -> parseAndSet(node, selection, value) }
+    }
+
+    fun set(json: String, selections: List<Pair<String, Any>>): String {
+        inputType = DataType.STRING
+        val root: JsonNode = if (json.isBlank()) objectMapper.createObjectNode() else objectMapper.readTree(json)
+        return selections.fold(root) { node, (selection, value) -> parseAndSet(node, selection, value) }.toString()
+    }
+
+    fun set(json: JSONObject, selections: List<Pair<String, Any>>): JSONObject {
+        inputType = DataType.GSON
+        val updated = selections.fold(objectMapper.readTree(json.toString())) { node, (selection, value) ->
+            parseAndSet(node, selection, value)
+        }
+        return JSONObject(updated.toString())
+    }
+
+    fun set(json: JSONArray, selections: List<Pair<String, Any>>): JSONArray {
+        inputType = DataType.GSON
+        val updated = selections.fold(objectMapper.readTree(json.toString())) { node, (selection, value) ->
+            parseAndSet(node, selection, value)
+        }
+        return JSONArray(updated.toString())
+    }
+
+    fun set(json: Any, selections: List<Pair<String, Any>>): Any {
+        return when (json) {
+            is String -> set(json, selections)
+            is JSONObject -> set(json, selections)
+            is JSONArray -> set(json, selections)
+            is JsonNode -> set(json, selections)
+            else -> throw IllegalArgumentException("Unsupported JSON input type: ${json::class.qualifiedName}")
+        }
+    }
+
 
     /**
      * Parsing JSON and settings the value in a JsonNode and selection path

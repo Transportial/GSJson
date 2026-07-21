@@ -860,4 +860,109 @@ internal object GSJsonTest {
         assertEquals(1, documents.length())
         assertEquals("X", documents.getJSONObject(0).getString("name"))
     }
+
+    // ---- Batch set: applying an ordered list of (selection, value) pairs in one pass ----
+
+    @Test
+    @DisplayName("batch set (JSONObject) equals applying the same pairs sequentially")
+    fun batchSetObjectEqualsSequential() {
+        val pairs = listOf<Pair<String, Any>>(
+            "name.first" to "Tom",
+            "name.last" to "Anderson",
+            "age" to 37,
+            "children.[0]" to "Sara",
+            "children.[1]" to "Alex",
+            "friends.[0].first" to "Dale",
+            "friends.[1].first" to "Roger"
+        )
+
+        val sequential = pairs.fold<Pair<String, Any>, JSONObject>(JSONObject()) { acc, (sel, v) ->
+            GSJson.set(acc, sel, v)
+        }
+        val batch = GSJson.set(JSONObject(), pairs)
+
+        assertEquals(sequential.toString(), batch.toString(), "Batch result must match sequential application")
+        assertEquals("Tom", batch.getJSONObject("name").getString("first"))
+        assertEquals("Alex", batch.getJSONArray("children").getString(1))
+        assertEquals("Roger", batch.getJSONArray("friends").getJSONObject(1).getString("first"))
+    }
+
+    @Test
+    @DisplayName("batch set (JSONArray) equals sequential, incl. descending indices and appends")
+    fun batchSetArrayEqualsSequential() {
+        // Mirrors how field mappings are applied: highest array indices first (null-padding lower
+        // slots), plus an auto-array append ("[]") that must land after the indexed writes.
+        val pairs = listOf<Pair<String, Any>>(
+            "[2].name" to "Third",
+            "[1].name" to "Second",
+            "[0].name" to "First",
+            "[0].tags.[]" to "a",
+            "[0].tags.[]" to "b"
+        )
+
+        val sequential = pairs.fold<Pair<String, Any>, JSONArray>(JSONArray()) { acc, (sel, v) ->
+            GSJson.set(acc, sel, v)
+        }
+        val batch = GSJson.set(JSONArray(), pairs)
+
+        assertEquals(sequential.toString(), batch.toString(), "Batch result must match sequential application")
+        assertEquals(3, batch.length())
+        assertEquals("First", batch.getJSONObject(0).getString("name"))
+        assertEquals("Third", batch.getJSONObject(2).getString("name"))
+        val tags = batch.getJSONObject(0).getJSONArray("tags")
+        assertEquals("a", tags.getString(0))
+        assertEquals("b", tags.getString(1))
+    }
+
+    @Test
+    @DisplayName("batch set (JsonNode) mutates one node in place and equals sequential")
+    fun batchSetJsonNodeEqualsSequential() {
+        val pairs = listOf<Pair<String, Any>>(
+            "a.b" to "x",
+            "a.c" to "y",
+            "list.[1]" to "second"
+        )
+
+        val sequential = pairs.fold<Pair<String, Any>, JsonNode>(GSJson.parse("{}")) { acc, (sel, v) ->
+            GSJson.set(acc, sel, v)
+        }
+        val batch = GSJson.set(GSJson.parse("{}"), pairs)
+
+        assertEquals(sequential.toString(), batch.toString())
+        assertEquals("x", batch.get("a").get("b").asText())
+        assertEquals("second", batch.get("list").get(1).asText())
+    }
+
+    @Test
+    @DisplayName("batch set on a large array matches sequential and produces the full array")
+    fun batchSetLargeArrayEqualsSequential() {
+        val n = 500
+        // Two fields per record, written highest-index-first (as orderMappingsForApply produces).
+        val pairs = (n - 1 downTo 0).flatMap { i ->
+            listOf<Pair<String, Any>>(
+                "[$i].id" to i,
+                "[$i].name" to "name-$i"
+            )
+        }
+
+        val sequential = pairs.fold<Pair<String, Any>, JSONArray>(JSONArray()) { acc, (sel, v) ->
+            GSJson.set(acc, sel, v)
+        }
+        val batch = GSJson.set(JSONArray(), pairs)
+
+        assertEquals(sequential.toString(), batch.toString(), "Batch and sequential must be identical for large input")
+        assertEquals(n, batch.length())
+        assertEquals(0, batch.getJSONObject(0).getInt("id"))
+        assertEquals("name-499", batch.getJSONObject(n - 1).getString("name"))
+    }
+
+    @Test
+    @DisplayName("batch set with empty list returns an unchanged document")
+    fun batchSetEmptyListNoOp() {
+        val batchObject = GSJson.set(JSONObject(), emptyList())
+        assertEquals(JSONObject().toString(), batchObject.toString())
+
+        val batchArray = GSJson.set(JSONArray(), emptyList())
+        assertEquals(JSONArray().toString(), batchArray.toString())
+    }
 }

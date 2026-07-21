@@ -3,7 +3,7 @@
  * Mirrors the Kotlin GSJsonTest.kt tests to verify full parity.
  */
 
-import { get, set, exists, getResult, forEachLine, ResultType } from './GSJson.js';
+import { get, set, setAll, exists, getResult, forEachLine, ResultType } from './GSJson.js';
 
 // ─── shared test data (same as Kotlin GSJsonTest) ────────────────────────────
 
@@ -126,6 +126,47 @@ test('settingFillsNullObjectKey', () => {
   // A key that was explicitly set to null is a placeholder → overwrite, not concat.
   let json = set('{"name":{"first":null}}', 'name.first', 'Tom');
   expect(JSON.parse(json)).toEqual({ name: { first: 'Tom' } });
+});
+
+test('settingAppendsWholeObjectViaAutoArray', () => {
+  // An object value on an auto-array path ("[]") is appended as a full element, never dropped.
+  const existing = '{"identifiers":[{"system":"A","value":"a-1"}]}';
+  const json = set(existing, 'identifiers.[]', { name: 'Sys B', system: 'B', value: 'b-1' });
+
+  expect(JSON.parse(json)).toEqual({
+    identifiers: [
+      { system: 'A', value: 'a-1' },
+      { name: 'Sys B', system: 'B', value: 'b-1' },
+    ],
+  });
+});
+
+test('settingNonMatchingComparisonFilterAppendsInsteadOfOverwritingIndexZero', () => {
+  // A comparison filter that matches nothing creates a NEW element at the end — it must not
+  // fall back to index 0 and clobber the first existing identifier.
+  const existing = '{"identifiers":[{"system":"A","value":"a-1"}]}';
+  let json = set(existing, 'identifiers.[system == "B"].system', 'B');
+  json = set(json, 'identifiers.[system == "B"].value', 'b-1');
+
+  expect(JSON.parse(json)).toEqual({
+    identifiers: [
+      { system: 'A', value: 'a-1' },
+      { system: 'B', value: 'b-1' },
+    ],
+  });
+});
+
+test('settingMatchingComparisonFilterUpdatesExistingElement', () => {
+  // When an element matches, the write targets that element (update) — no duplicate appended.
+  const existing = '{"identifiers":[{"system":"A","value":"old"},{"system":"B","value":"keep"}]}';
+  const json = set(existing, 'identifiers.[system == "A"].value', 'new');
+
+  expect(JSON.parse(json)).toEqual({
+    identifiers: [
+      { system: 'A', value: 'oldnew' },
+      { system: 'B', value: 'keep' },
+    ],
+  });
 });
 
 // ─── testWildcardSelectors ────────────────────────────────────────────────────
@@ -673,4 +714,73 @@ test('testUniqueDistinctModifier', () => {
   const lastNames = get(selectJson, 'friends|@unique');
   expect(lastNames).not.toBeNull(); // friends array has no dupes, all 4 remain
   expect(lastNames).toHaveLength(4);
+});
+
+// ─── batch set (setAll) ──────────────────────────────────────────────────────
+
+test('setAll on an object equals applying the same pairs sequentially', () => {
+  const pairs = [
+    ['name.first', 'Tom'],
+    ['name.last', 'Anderson'],
+    ['age', 37],
+    ['children.[0]', 'Sara'],
+    ['children.[1]', 'Alex'],
+    ['friends.[0].first', 'Dale'],
+    ['friends.[1].first', 'Roger'],
+  ];
+
+  let sequential = '{}';
+  for (const [path, value] of pairs) sequential = set(sequential, path, value);
+  const batch = setAll('{}', pairs);
+
+  expect(batch).toBe(sequential);
+  const parsed = JSON.parse(batch);
+  expect(parsed.name.first).toBe('Tom');
+  expect(parsed.children[1]).toBe('Alex');
+  expect(parsed.friends[1].first).toBe('Roger');
+});
+
+test('setAll on an array equals sequential, incl. descending indices and appends', () => {
+  const pairs = [
+    ['[2].name', 'Third'],
+    ['[1].name', 'Second'],
+    ['[0].name', 'First'],
+    ['[0].tags.[]', 'a'],
+    ['[0].tags.[]', 'b'],
+  ];
+
+  let sequential = '[]';
+  for (const [path, value] of pairs) sequential = set(sequential, path, value);
+  const batch = setAll('[]', pairs);
+
+  expect(batch).toBe(sequential);
+  const parsed = JSON.parse(batch);
+  expect(parsed).toHaveLength(3);
+  expect(parsed[0].name).toBe('First');
+  expect(parsed[2].name).toBe('Third');
+  expect(parsed[0].tags).toEqual(['a', 'b']);
+});
+
+test('setAll on a large array matches sequential', () => {
+  const n = 500;
+  const pairs = [];
+  for (let i = n - 1; i >= 0; i--) {
+    pairs.push([`[${i}].id`, i]);
+    pairs.push([`[${i}].name`, `name-${i}`]);
+  }
+
+  let sequential = '[]';
+  for (const [path, value] of pairs) sequential = set(sequential, path, value);
+  const batch = setAll('[]', pairs);
+
+  expect(batch).toBe(sequential);
+  const parsed = JSON.parse(batch);
+  expect(parsed).toHaveLength(n);
+  expect(parsed[0].id).toBe(0);
+  expect(parsed[n - 1].name).toBe('name-499');
+});
+
+test('setAll with an empty list returns an unchanged document', () => {
+  expect(setAll('{}', [])).toBe('{}');
+  expect(setAll('[]', [])).toBe('[]');
 });

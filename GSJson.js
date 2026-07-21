@@ -604,6 +604,41 @@ const _handleJsonLines = (data, selection, rootData) => {
 // ─── set ──────────────────────────────────────────────────────────────────────
 
 /**
+ * Resolve the index a bracket token addresses when WRITING to an array.
+ * Mirrors the JVM getJsonArrayIndex + set() semantics:
+ *   [n]            → that exact index
+ *   []             → append a new element at the end
+ *   [field op "x"] → the first matching element, or — when nothing matches — a NEW
+ *                    element at the end. It must NEVER fall back to index 0, which would
+ *                    silently overwrite the first existing element.
+ *
+ * @returns {{ index: number, append: boolean }} append=true means "create a fresh slot".
+ */
+const _resolveArrayWriteIndex = (arr, token, rootData) => {
+  const inner = token.slice(1, -1).trim();
+
+  // Auto-array append: []
+  if (inner === '') return { index: arr.length, append: true };
+
+  // Explicit numeric index: [0], [1], ...
+  if (/^\d+$/.test(inner)) return { index: parseInt(inner, 10), append: false };
+
+  // Comparison filter: [field op right] (right may be "quoted")
+  const m = inner.match(/^(.+?)\s*(==|!=|<=|>=|<|>|!%|%)\s*(.+)$/);
+  if (m) {
+    const [, fieldExpr, op, rawRight] = m;
+    const field = fieldExpr.trim();
+    const right = rawRight.trim().replace(/^["']|["']$/g, '');
+    const found = arr.findIndex((item) =>
+      _compareValues(field === '#' ? item : _getByPath(item, field, rootData, []), op, right)
+    );
+    return found >= 0 ? { index: found, append: false } : { index: arr.length, append: true };
+  }
+
+  return { index: NaN, append: false };
+};
+
+/**
  * Set a value in a (parsed) object at the given path.
  * Returns the mutated clone as a JSON string.
  */
@@ -615,18 +650,24 @@ const _setByPath = (obj, path, value) => {
   let root = JSON.parse(JSON.stringify(obj ?? {}));
   let current = root;
 
+  // Structured values (objects/arrays) are placed as-is; only scalars concatenate onto an
+  // existing value. Clone structured values so the result never shares a reference with the caller.
+  const isStructured = (v) => v !== null && typeof v === 'object';
+  const cloneValue = (v) => (isStructured(v) ? JSON.parse(JSON.stringify(v)) : v);
+
   for (let i = 0; i < tokens.length - 1; i++) {
     const token = tokens[i];
     const next  = tokens[i + 1];
-    const isNextArray = next.startsWith('[') && next.endsWith(']') && /^\d+$/.test(next.slice(1, -1));
+    const isNextArray = next.startsWith('[') && next.endsWith(']');
 
     if (token.startsWith('[') && token.endsWith(']')) {
-      const idx = parseInt(token.slice(1, -1), 10);
       if (!isArray(current)) break;
-      if (current[idx] === undefined || current[idx] === null) {
-        current[idx] = isNextArray ? [] : {};
+      const { index, append } = _resolveArrayWriteIndex(current, token, root);
+      if (isNaN(index)) break;
+      if (append || current[index] === undefined || current[index] === null) {
+        current[index] = isNextArray ? [] : {};
       }
-      current = current[idx];
+      current = current[index];
     } else {
       if (current[token] === undefined || current[token] === null) {
         current[token] = isNextArray ? [] : {};
@@ -637,20 +678,24 @@ const _setByPath = (obj, path, value) => {
 
   const last = tokens[tokens.length - 1];
   if (last.startsWith('[') && last.endsWith(']')) {
-    const idx = parseInt(last.slice(1, -1), 10);
     if (isArray(current)) {
-      // null entries are padding placeholders, not real values → overwrite them.
-      if (current[idx] !== undefined && current[idx] !== null) {
-        current[idx] = String(current[idx]) + String(value);
-      } else {
-        current[idx] = value;
+      const { index, append } = _resolveArrayWriteIndex(current, last, root);
+      if (!isNaN(index)) {
+        const existing = current[index];
+        // Concatenate only when appending a scalar onto a genuine existing scalar slot;
+        // otherwise (append of a new element, structured value, or null padding) place as-is.
+        if (!append && existing !== undefined && existing !== null && !isStructured(value)) {
+          current[index] = String(existing) + String(value);
+        } else {
+          current[index] = cloneValue(value);
+        }
       }
     }
   } else {
-    if (current[last] !== undefined && current[last] !== null) {
+    if (current[last] !== undefined && current[last] !== null && !isStructured(value)) {
       current[last] = String(current[last]) + String(value);
     } else {
-      current[last] = value;
+      current[last] = cloneValue(value);
     }
   }
 
@@ -756,6 +801,38 @@ const set = (data, path, value) => {
 };
 
 /**
+ * Batch variant of set(): apply an ordered list of [path, value] pairs to one document in a
+ * single pass. Parses (or accepts) the document once, applies every mapping in place, and
+ * stringifies once — equivalent to applying the pairs sequentially, in order.
+ *
+ * An array of pairs is used rather than a plain object map because application is
+ * order-dependent and the same path may legitimately appear more than once (e.g. repeated
+ * `[]` appends, or concatenations onto the same path).
+ *
+ * Mirrors GSJson.set(json, selections) on the JVM side.
+ *
+ * @param {object|string}     data  - The data object or JSON string (may be ''/'{}'/'[]' for new)
+ * @param {Array<[string, *]>} pairs - Ordered [path, value] pairs
+ * @returns {string} The resulting JSON string
+ */
+const setAll = (data, pairs) => {
+  let obj;
+  if (!data || data === '') {
+    obj = {};
+  } else if (typeof data === 'string') {
+    try { obj = JSON.parse(data); } catch { obj = {}; }
+  } else {
+    obj = data;
+  }
+
+  let result = obj;
+  for (const [path, value] of (pairs || [])) {
+    result = _setByPath(result, path, value);
+  }
+  return JSON.stringify(result);
+};
+
+/**
  * Check whether a path exists (resolves to a non-null/undefined value) in data.
  * Mirrors GSJson.exists() on the JVM side.
  */
@@ -796,7 +873,7 @@ const forEachLine = (jsonLines, action) => {
 
 // ─── exports ──────────────────────────────────────────────────────────────────
 
-const GSJson = { get, set, exists, getResult, forEachLine, ResultType };
+const GSJson = { get, set, setAll, exists, getResult, forEachLine, ResultType };
 
 export default GSJson;
-export { get, set, exists, getResult, forEachLine, ResultType };
+export { get, set, setAll, exists, getResult, forEachLine, ResultType };
