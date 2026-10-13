@@ -21,12 +21,12 @@ object GSJson {
 
 
     private val objectMapper = ObjectMapper()
-    private var inputType: DataType = DataType.STRING
-        set(value) {
-            outputType = value
-            field = value
-        }
-    private var outputType: DataType = DataType.STRING
+
+    // GSJson is a shared singleton: the input type must be per thread or concurrent callers get each other's return types.
+    private val inputTypeHolder: ThreadLocal<DataType> = ThreadLocal.withInitial { DataType.STRING }
+    private var inputType: DataType
+        get() = inputTypeHolder.get()
+        set(value) = inputTypeHolder.set(value)
 
     /**
      * Parse a JSON string into the utility's native Jackson representation.
@@ -37,6 +37,39 @@ object GSJson {
      */
     fun parse(json: String): JsonNode {
         return objectMapper.readTree(json)
+    }
+
+    /**
+     * Convert an org.json object into a Jackson tree without a string round trip, which would
+     * also shave "12.50" to 12.5 (org.json strips trailing zeros when it writes numbers).
+     */
+    fun parse(json: JSONObject): JsonNode = fromOrgJson(json)
+
+    /**
+     * Convert an org.json array into a Jackson tree without a string round trip.
+     */
+    fun parse(json: JSONArray): JsonNode = fromOrgJson(json)
+
+    private fun fromOrgJson(value: Any?): JsonNode {
+        val factory = objectMapper.nodeFactory
+        return when (value) {
+            null, JSONObject.NULL -> factory.nullNode()
+            is JSONObject -> factory.objectNode().also { node ->
+                value.keys().forEach { key -> node.set<JsonNode>(key, fromOrgJson(value.opt(key))) }
+            }
+            is JSONArray -> factory.arrayNode().also { node -> value.forEach { node.add(fromOrgJson(it)) } }
+            is String -> factory.textNode(value)
+            is Boolean -> factory.booleanNode(value)
+            is Int -> factory.numberNode(value)
+            is Long -> factory.numberNode(value)
+            is java.math.BigInteger -> factory.numberNode(value)
+            is java.math.BigDecimal -> DecimalNode.valueOf(value)
+            is Double -> factory.numberNode(value)
+            is Float -> factory.numberNode(value.toDouble())
+            is Number -> factory.numberNode(value.toLong())
+            is JsonNode -> value
+            else -> objectMapper.valueToTree<JsonNode>(value)
+        }
     }
 
     /**
@@ -65,7 +98,7 @@ object GSJson {
         return if (isJsonLinesSelection(selection)) {
             handleJsonLines(json, selection)
         } else {
-            parseAndGet(objectMapper.readTree(json), selection)
+            getSelected(objectMapper.readTree(json), selection)
         }
     }
     
@@ -122,7 +155,7 @@ object GSJson {
      */
     fun get(json: JSONObject, selection: String): Any? {
         inputType = DataType.GSON
-        return parseAndGet(objectMapper.readTree(json.toString()), selection)
+        return getSelected(parse(json), selection)
     }
     
     /**
@@ -136,7 +169,7 @@ object GSJson {
      */
     fun get(json: JSONObject, selection: String, defaultValue: Any): Any {
         inputType = DataType.GSON
-        val result = parseAndGet(objectMapper.readTree(json.toString()), selection)
+        val result = parseAndGet(parse(json), selection)
         return result ?: defaultValue
     }
 
@@ -150,7 +183,7 @@ object GSJson {
      */
     fun get(json: JSONArray, selection: String): Any? {
         inputType = DataType.GSON
-        return parseAndGet(objectMapper.readTree(json.toString()), selection)
+        return getSelected(parse(json), selection)
     }
     
     /**
@@ -164,7 +197,7 @@ object GSJson {
      */
     fun get(json: JSONArray, selection: String, defaultValue: Any): Any {
         inputType = DataType.GSON
-        val result = parseAndGet(objectMapper.readTree(json.toString()), selection)
+        val result = parseAndGet(parse(json), selection)
         return result ?: defaultValue
     }
 
@@ -178,7 +211,7 @@ object GSJson {
      */
     fun get(json: JsonNode, selection: String): Any? {
         inputType = DataType.JACKSON
-        return parseAndGet(json, selection)
+        return getSelected(json, selection)
     }
     
     /**
@@ -198,6 +231,22 @@ object GSJson {
 
 
     /**
+     * The public read: like [parseAndGet], but an explicit JSON null comes back as the input family's
+     * null (org.json's JSONObject.NULL, Jackson's NullNode) so callers can tell it from a missing path.
+     */
+    private fun getSelected(json: JsonNode, selection: String): Any? {
+        val node = parseAndGetAsNode(json, selection)
+        if (node is NullNode) {
+            return when (inputType) {
+                DataType.GSON -> JSONObject.NULL
+                DataType.JACKSON -> node
+                DataType.STRING -> null
+            }
+        }
+        return getValue(node)
+    }
+
+    /**
      * Parsing JSON and receiving value from JsonNode and selection path
      *
      * @param json: JsonNode (Jackson JsonNode)
@@ -212,37 +261,7 @@ object GSJson {
         selection: String,
         contextNodes: List<JsonNode> = listOf(json),
         previousArrayLevel: Int = 0
-    ): Any? {
-        if (isConstantInstruction(selection)) return toConstant(selection)
-
-        val instructions = selectionToInstructions(selection)
-
-        val previousSelections = contextNodes.toMutableList()
-        var currentSelection = json
-        instructions.forEach { instruction ->
-            when {
-                isConstantInstruction(instruction) -> return toConstant(instruction)
-                isBackReference(instruction) -> {
-                    currentSelection = previousSelections[previousSelections.size - getBackReferencesCount(instruction)]
-                }
-                isModifierInstruction(instruction) -> {
-                    currentSelection = applyModifier(currentSelection, instruction, contextNodes, previousArrayLevel)
-                }
-                else -> {
-                    currentSelection = select(
-                        currentSelection,
-                        instruction,
-                        previousSelections.toMutableList().toList(),
-                        previousArrayLevel
-                    )
-                    previousSelections.add(currentSelection.deepCopy())
-                }
-            }
-        }
-
-        return getValue(currentSelection)
-    }
-
+    ): Any? = getValue(parseAndGetAsNode(json, selection, contextNodes, previousArrayLevel))
 
     /**
      * Setting JSON value from string and selection path
@@ -570,47 +589,36 @@ object GSJson {
         contextNodes: List<JsonNode> = listOf(),
         previousArrayLevel: Int = 0
     ): JsonNode {
-        return try {
-            return when (json) {
-                is ArrayNode -> when {
-                    isArrayInstruction(instruction) -> selectArrayElement(
-                        json,
-                        instruction,
-                        contextNodes,
-                        previousArrayLevel
-                    )
-                    isCountInstruction(instruction) -> {
-                        objectMapper.valueToTree(json.size())
-                    }
-                    isAllElementsInstruction(instruction) -> {
-                        val childPath = instruction.removePrefix("#.")
-                        val resultArray = objectMapper.createArrayNode()
-                        json.forEach { element ->
-                            val childValue = parseAndGet(element, childPath, contextNodes, previousArrayLevel)
-                            when (childValue) {
-                                is JsonNode -> resultArray.add(childValue)
-                                else -> resultArray.add(objectMapper.valueToTree(childValue) as JsonNode)
-                            }
-                        }
-                        resultArray
-                    }
-                    json.has(instruction) -> json.get(instruction)
-                    else -> json
+        return when (json) {
+            is ArrayNode -> when {
+                isArrayInstruction(instruction) -> selectArrayElement(
+                    json,
+                    instruction,
+                    contextNodes,
+                    previousArrayLevel
+                )
+                isCountInstruction(instruction) -> {
+                    objectMapper.valueToTree<JsonNode>(json.size())
                 }
-
-                is ObjectNode -> {
-                    when {
-                        json.has(instruction) -> json.get(instruction)
-                        isWildcardInstruction(instruction) -> selectWildcardMatch(json, instruction)
-                        else -> objectMapper.missingNode()
-                    }
-                }
-
-                else -> throw Exception("Could not select according to given instruction")
+                isAllElementsInstruction(instruction) -> mapElements(
+                    json, selectionToInstructions(instruction.removePrefix("#.")), contextNodes, previousArrayLevel
+                )
+                instruction.all { it.isDigit() } -> elementAt(json, instruction.toInt())
+                // A plain key on an array reads the first element, so `friends.[last == "Murphy"].first` is "Dale".
+                json.size() > 0 -> select(json.get(0), instruction, contextNodes, previousArrayLevel)
+                else -> objectMapper.missingNode()
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            json
+
+            is ObjectNode -> {
+                when {
+                    json.has(instruction) -> json.get(instruction)
+                    isWildcardInstruction(instruction) -> selectWildcardMatch(json, instruction)
+                    else -> objectMapper.missingNode()
+                }
+            }
+
+            // A scalar, null or missing node has no children.
+            else -> objectMapper.missingNode()
         }
     }
 
@@ -621,7 +629,12 @@ object GSJson {
         return when (json) {
             is MissingNode -> null
             is IntNode -> json.intValue()
+            is LongNode -> json.longValue()
+            is ShortNode -> json.intValue()
+            is BigIntegerNode -> json.bigIntegerValue()
             is DoubleNode -> json.doubleValue()
+            is FloatNode -> json.doubleValue()
+            is DecimalNode -> decimalValue(json)
             is BooleanNode -> json.booleanValue()
             is TextNode -> json.textValue()
             is ArrayNode -> when (inputType) {
@@ -638,6 +651,15 @@ object GSJson {
 
             else -> null
         }
+    }
+
+    /**
+     * An exact decimal stays a Double unless that would change its text ("12.50", "1E+5").
+     */
+    private fun decimalValue(json: DecimalNode): Number {
+        val decimal = json.decimalValue()
+        val double = decimal.toDouble()
+        return if (double.toString() == decimal.toString()) double else decimal
     }
 
     /**
@@ -717,7 +739,7 @@ object GSJson {
                 val node: JsonNode = when (value) {
                     is JsonNode -> value
                     is JSONObject, is JSONArray -> objectMapper.readTree(value.toString())
-                    else -> objectMapper.valueToTree(value)
+                    else -> objectMapper.valueToTree<JsonNode>(value)
                 }
                 if (index == null) json.add(node) else json.insert(index, node)
             }
@@ -732,7 +754,7 @@ object GSJson {
     private fun setValueAtIndex(json: ArrayNode, index: Int, value: Any?): JsonNode {
         if (value == null) return json
         while (json.size() < index) json.addNull()
-        val node: JsonNode = objectMapper.valueToTree(if (value is Instant) value.toString() else value)
+        val node: JsonNode = objectMapper.valueToTree<JsonNode>(if (value is Instant) value.toString() else value)
         if (index >= json.size()) json.add(node) else json.set(index, node)
         return json
     }
@@ -740,68 +762,62 @@ object GSJson {
     /**
      * Split selection into instructions
      *
+     * Splits on unescaped `.` and `|` outside brackets, parentheses and quotes, so nested selectors
+     * like `[#.entity.goods.[0].x]` stay one instruction. A `@name:argument` modifier runs to the next pipe.
+     *
      * @param selection: the selection input
      *
      * @return list of selection instructions
      */
     private fun selectionToInstructions(selection: String): List<String> {
-        var copiedSelection = String(selection.toCharArray())
+        val instructions = mutableListOf<String>()
+        val current = StringBuilder()
+        var bracketDepth = 0
+        var parenDepth = 0
+        var quote: Char? = null
+        var inModifierArgument = false
+        var i = 0
 
-        val arrayReferenceRegex = "\\[([^]]*)]"
-        val arrayReferences = mutableMapOf<String, Any>()
-        arrayReferenceRegex.toRegex().findAll(copiedSelection).forEach { match ->
-            val reference = "array${HelperUtils.number(10)}"
-            arrayReferences[reference] = match.value
-
-            copiedSelection = copiedSelection.replace(match.value, reference)
+        fun flush() {
+            instructions.add(current.toString())
+            current.clear()
+            inModifierArgument = false
         }
 
-        val functionalReferenceRegex = "\\(([^)]*)\\)"
-        val functionalReferences = mutableMapOf<String, Any>()
-        functionalReferenceRegex.toRegex().findAll(copiedSelection).forEach { match ->
-            val reference = "function${HelperUtils.number(10)}"
-            functionalReferences[reference] = match.value
-
-            copiedSelection = copiedSelection.replace(match.value, reference)
-        }
-        
-        // Protect modifier arguments from being split (quoted strings may contain '|')
-        val modifierReferenceRegex = """@\w+:(?:"[^"]*"|'[^']*'|[^|])*"""
-        val modifierReferences = mutableMapOf<String, Any>()
-        modifierReferenceRegex.toRegex().findAll(copiedSelection).forEach { match ->
-            val reference = "modifier${HelperUtils.number(10)}"
-            modifierReferences[reference] = match.value
-
-            copiedSelection = copiedSelection.replace(match.value, reference)
-        }
-
-
-        val dotRegex = "(?<!\\\\)\\Q.\\E".toRegex()
-        val pipeRegex = "(?<!\\\\)\\Q|\\E".toRegex()
-
-        return dotRegex.split(copiedSelection)
-            .flatMap { pipeRegex.split(it) }
-            .map {
-                var instruction = it.replace("\\.", ".")
-                    .replace("\\|", "|")
-
-                arrayReferences.forEach {
-                    instruction = instruction.replace(it.key, it.value.toString())
+        while (i < selection.length) {
+            val char = selection[i]
+            when {
+                quote != null -> {
+                    current.append(char)
+                    if (char == quote) quote = null
                 }
-
-                functionalReferences.forEach {
-                    instruction = instruction.replace(it.key, it.value.toString())
+                char == '\\' && i + 1 < selection.length && (selection[i + 1] == '.' || selection[i + 1] == '|') -> {
+                    current.append(selection[i + 1])
+                    i++
                 }
-                
-                modifierReferences.forEach {
-                    instruction = instruction.replace(it.key, it.value.toString())
+                (char == '"' || char == '\'') && (bracketDepth > 0 || parenDepth > 0 || inModifierArgument || current.isEmpty()) -> {
+                    current.append(char)
+                    quote = char
                 }
-
-                instruction
+                char == '[' -> { bracketDepth++; current.append(char) }
+                char == ']' -> { if (bracketDepth > 0) bracketDepth--; current.append(char) }
+                char == '(' -> { parenDepth++; current.append(char) }
+                char == ')' -> { if (parenDepth > 0) parenDepth--; current.append(char) }
+                bracketDepth > 0 || parenDepth > 0 -> current.append(char)
+                char == '|' -> flush()
+                char == '.' && !inModifierArgument -> flush()
+                else -> {
+                    current.append(char)
+                    if (char == ':' && current.startsWith("@") && current.length > 2) inModifierArgument = true
+                }
             }
-            // Drop empty tokens (e.g. from a leading/trailing/duplicate dot like ".fruits.[0]")
-            // so downstream index math (instructions.size, getOrNull) stays consistent.
-            .filter { it.isNotBlank() }
+            i++
+        }
+        flush()
+
+        // Drop empty tokens (e.g. from a leading/trailing/duplicate dot like ".fruits.[0]")
+        // so downstream index math (instructions.size, getOrNull) stays consistent.
+        return instructions.filter { it.isNotBlank() }
     }
 
     /**
@@ -814,22 +830,13 @@ object GSJson {
         default: Int = 0
     ): JsonNode {
         val cleanedInstruction = cleanInstruction(instruction)
-        
+
         if (cleanedInstruction == "#") {
-            return objectMapper.valueToTree(jsonArray.size())
+            return objectMapper.valueToTree<JsonNode>(jsonArray.size())
         }
-        
+
         if (cleanedInstruction.startsWith("#.")) {
-            val childPath = cleanedInstruction.removePrefix("#.")
-            val resultArray = objectMapper.createArrayNode()
-            jsonArray.forEach { element ->
-                val childValue = parseAndGet(element, childPath, contextNodes, default)
-                when (childValue) {
-                    is JsonNode -> resultArray.add(childValue)
-                    else -> resultArray.add(objectMapper.valueToTree(childValue) as JsonNode)
-                }
-            }
-            return resultArray
+            return mapElements(jsonArray, selectionToInstructions(cleanedInstruction.removePrefix("#.")), contextNodes, default)
         }
 
         if (isComparisonInstruction(cleanedInstruction)) {
@@ -837,15 +844,34 @@ object GSJson {
                 .addAll(jsonArray.filter { compareSelectors(it, cleanedInstruction, contextNodes, default) })
             return filteredArray
         }
-        
+
         if (isMultiQueryInstruction(cleanedInstruction)) {
             return handleMultiQuery(jsonArray, cleanedInstruction, contextNodes, default)
         }
 
-        val jsonIndex = getJsonArrayIndex(jsonArray, instruction, contextNodes, default)
-        if (jsonArray.has(jsonIndex)) return jsonArray.get(jsonIndex)
+        // `[nets.[# == "fb"]]`: keep the elements on which the nested selector finds something.
+        if (cleanedInstruction.contains('[')) {
+            val filteredArray = objectMapper.createArrayNode()
+            jsonArray.forEach { element ->
+                val found = parseAndGetAsNode(element, cleanedInstruction, contextNodes + element, default)
+                val matches = when {
+                    found is MissingNode || found is NullNode -> false
+                    found is ArrayNode -> found.size() > 0
+                    found.isBoolean -> found.booleanValue()
+                    else -> true
+                }
+                if (matches) filteredArray.add(element)
+            }
+            return filteredArray
+        }
 
-        return objectMapper.missingNode()
+        return elementAt(jsonArray, getJsonArrayIndex(jsonArray, instruction, contextNodes, default))
+    }
+
+    /** A null slot reads as absent, the same way set() treats it as padding. */
+    private fun elementAt(jsonArray: ArrayNode, index: Int): JsonNode {
+        val element = jsonArray.get(index)
+        return if (element == null || element.isNull) objectMapper.missingNode() else element
     }
 
     /**
@@ -873,6 +899,37 @@ object GSJson {
         return if (numberString.isBlank()) 0 else numberString.toInt()
     }
 
+    private val comparisonOperators = listOf("==", "!=", "<=", ">=", "!%", "<", ">", "%")
+
+    /**
+     * Split `left op right` on the first operator outside quotes and nested brackets. Whitespace
+     * around the operator is optional and a quoted constant may contain spaces.
+     */
+    private fun parseComparison(instruction: String): Triple<String, String, String>? {
+        val expression = cleanInstruction(instruction)
+        var quote: Char? = null
+        var depth = 0
+        var i = 0
+        while (i < expression.length) {
+            val char = expression[i]
+            when {
+                quote != null -> if (char == quote) quote = null
+                char == '"' || char == '\'' -> quote = char
+                char == '[' || char == '(' -> depth++
+                char == ']' || char == ')' -> depth--
+                depth == 0 -> {
+                    val operator = comparisonOperators.firstOrNull { expression.startsWith(it, i) }
+                    val left = expression.substring(0, i).trim()
+                    if (operator != null && left.isNotEmpty()) {
+                        val right = expression.substring(i + operator.length).trim()
+                        if (right.isNotEmpty()) return Triple(left, operator, right)
+                    }
+                }
+            }
+            i++
+        }
+        return null
+    }
 
     /**
      * Compare a comparison selector according to different operators
@@ -883,14 +940,11 @@ object GSJson {
         contextNodes: List<JsonNode> = listOf(),
         previousArrayLevel: Int = 0
     ): Boolean {
-        val matches = "([^\\s]+)".toRegex().findAll(cleanInstruction(instruction))
-        val leftSide = matches.firstOrNull()?.value?.trim() ?: ""
-        val comparison = matches.elementAtOrNull(1)?.value?.trim() ?: "=="
-        val rightSide = matches.elementAtOrNull(2)?.value?.trim() ?: ""
+        val (leftSide, comparison, rightSide) = parseComparison(instruction) ?: return false
 
-        val leftValue = parseAndGet(jsonNode, leftSide, contextNodes, previousArrayLevel)
-        val rightValue = parseAndGet(jsonNode, rightSide, contextNodes, previousArrayLevel)
-        
+        val leftValue = comparisonOperand(jsonNode, leftSide, contextNodes, previousArrayLevel)
+        val rightValue = comparisonOperand(jsonNode, rightSide, contextNodes, previousArrayLevel)
+
         val leftStr = leftValue.toString()
         val rightStr = rightValue.toString()
 
@@ -905,6 +959,20 @@ object GSJson {
             "!%" -> !leftStr.matches(wildcardToRegex(rightStr))
             else -> false
         }
+    }
+
+    /**
+     * A missing operand compares as "" (an explicit null as "null"); `#` on a scalar element is the element itself.
+     */
+    private fun comparisonOperand(
+        jsonNode: JsonNode,
+        side: String,
+        contextNodes: List<JsonNode>,
+        previousArrayLevel: Int
+    ): Any? {
+        if (side == "#" && !jsonNode.isContainerNode) return getValue(jsonNode)
+        val node = parseAndGetAsNode(jsonNode, side, contextNodes, previousArrayLevel)
+        return if (node is MissingNode) "" else getValue(node)
     }
 
     /**
@@ -948,8 +1016,7 @@ object GSJson {
      * @return boolean of if the instruction is a comparison
      */
     private fun isComparisonInstruction(instruction: String): Boolean {
-        val matches = "([^\\s]+)".toRegex().findAll(instruction)
-        return matches.count() == 3
+        return parseComparison(instruction) != null
     }
 
     /**
@@ -1199,7 +1266,6 @@ object GSJson {
 
     /**
      * Traverse a selection path and return the raw JsonNode without converting via getValue().
-     * Used internally by @flatMap to inspect whether the result is an array before flattening.
      */
     private fun parseAndGetAsNode(
         json: JsonNode,
@@ -1207,34 +1273,65 @@ object GSJson {
         contextNodes: List<JsonNode> = listOf(json),
         previousArrayLevel: Int = 0
     ): JsonNode {
-        if (isConstantInstruction(selection)) return objectMapper.valueToTree(toConstant(selection))
+        if (isConstantInstruction(selection)) return objectMapper.valueToTree<JsonNode>(toConstant(selection))
+        return evaluateInstructions(json, selectionToInstructions(selection), contextNodes, previousArrayLevel)
+    }
 
-        val instructions = selectionToInstructions(selection)
+    private fun evaluateInstructions(
+        json: JsonNode,
+        instructions: List<String>,
+        contextNodes: List<JsonNode>,
+        previousArrayLevel: Int
+    ): JsonNode {
+        // Reads never mutate, so the visited nodes are shared rather than deep-copied per step.
         val previousSelections = contextNodes.toMutableList()
         var currentSelection = json
 
-        instructions.forEach { instruction ->
+        for ((index, instruction) in instructions.withIndex()) {
             when {
-                isConstantInstruction(instruction) -> return objectMapper.valueToTree(toConstant(instruction))
+                isConstantInstruction(instruction) -> return objectMapper.valueToTree<JsonNode>(toConstant(instruction))
                 isBackReference(instruction) -> {
-                    currentSelection = previousSelections[previousSelections.size - getBackReferencesCount(instruction)]
+                    currentSelection = previousSelections.getOrNull(previousSelections.size - getBackReferencesCount(instruction))
+                        ?: return objectMapper.missingNode()
                 }
                 isModifierInstruction(instruction) -> {
                     currentSelection = applyModifier(currentSelection, instruction, contextNodes, previousArrayLevel)
                 }
-                else -> {
-                    currentSelection = select(
-                        currentSelection,
-                        instruction,
-                        previousSelections.toMutableList().toList(),
-                        previousArrayLevel
+                // `items.#.cost.amount`: map the rest of the path (up to the next modifier) over every element.
+                isCountInstruction(instruction) && currentSelection is ArrayNode && index < instructions.size - 1
+                        && !isModifierInstruction(instructions[index + 1]) -> {
+                    val rest = instructions.drop(index + 1)
+                    val childPath = rest.takeWhile { !isModifierInstruction(it) }
+                    currentSelection = mapElements(currentSelection as ArrayNode, childPath, previousSelections, previousArrayLevel)
+                    return evaluateInstructions(
+                        currentSelection, rest.drop(childPath.size), previousSelections + currentSelection, previousArrayLevel
                     )
-                    previousSelections.add(currentSelection.deepCopy())
+                }
+                else -> {
+                    currentSelection = select(currentSelection, instruction, previousSelections.toList(), previousArrayLevel)
+                    previousSelections.add(currentSelection)
                 }
             }
         }
 
         return currentSelection
+    }
+
+    /**
+     * The child path of every element, omitting elements where it does not exist.
+     */
+    private fun mapElements(
+        jsonArray: ArrayNode,
+        childInstructions: List<String>,
+        contextNodes: List<JsonNode>,
+        previousArrayLevel: Int
+    ): ArrayNode {
+        val resultArray = objectMapper.createArrayNode()
+        jsonArray.forEach { element ->
+            val childValue = evaluateInstructions(element, childInstructions, contextNodes + element, previousArrayLevel)
+            if (childValue !is MissingNode) resultArray.add(childValue)
+        }
+        return resultArray
     }
 
     /**
@@ -1326,14 +1423,14 @@ object GSJson {
             "@this" -> json
             "@pretty" -> {
                 val prettyJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(json)
-                objectMapper.valueToTree(prettyJson)
+                objectMapper.valueToTree<JsonNode>(prettyJson)
             }
             "@ugly" -> {
                 val compactJson = objectMapper.writeValueAsString(json)
-                objectMapper.valueToTree(compactJson)
+                objectMapper.valueToTree<JsonNode>(compactJson)
             }
             "@tostr" -> {
-                objectMapper.valueToTree(json.toString())
+                objectMapper.valueToTree<JsonNode>(json.toString())
             }
             "@fromstr" -> {
                 try {
@@ -1351,14 +1448,14 @@ object GSJson {
                             else -> 0.0
                         }
                     }
-                    objectMapper.valueToTree(sum)
+                    objectMapper.valueToTree<JsonNode>(sum)
                 }
-                else -> objectMapper.valueToTree(0)
+                else -> objectMapper.valueToTree<JsonNode>(0)
             }
             "@avg" -> when (json) {
                 is ArrayNode -> {
                     if (json.size() == 0) {
-                        objectMapper.valueToTree(0)
+                        objectMapper.valueToTree<JsonNode>(0)
                     } else {
                         val sum = json.sumOf { node ->
                             when {
@@ -1367,10 +1464,10 @@ object GSJson {
                                 else -> 0.0
                             }
                         }
-                        objectMapper.valueToTree(sum / json.size())
+                        objectMapper.valueToTree<JsonNode>(sum / json.size())
                     }
                 }
-                else -> objectMapper.valueToTree(0)
+                else -> objectMapper.valueToTree<JsonNode>(0)
             }
             "@min" -> when (json) {
                 is ArrayNode -> {
@@ -1381,9 +1478,9 @@ object GSJson {
                             else -> Double.MAX_VALUE
                         }
                     }
-                    objectMapper.valueToTree(minValue ?: 0)
+                    objectMapper.valueToTree<JsonNode>(minValue ?: 0)
                 }
-                else -> objectMapper.valueToTree(0)
+                else -> objectMapper.valueToTree<JsonNode>(0)
             }
             "@max" -> when (json) {
                 is ArrayNode -> {
@@ -1394,14 +1491,14 @@ object GSJson {
                             else -> Double.MIN_VALUE
                         }
                     }
-                    objectMapper.valueToTree(maxValue ?: 0)
+                    objectMapper.valueToTree<JsonNode>(maxValue ?: 0)
                 }
-                else -> objectMapper.valueToTree(0)
+                else -> objectMapper.valueToTree<JsonNode>(0)
             }
             "@count" -> when (json) {
-                is ArrayNode -> objectMapper.valueToTree(json.size())
-                is ObjectNode -> objectMapper.valueToTree(json.size())
-                else -> objectMapper.valueToTree(1)
+                is ArrayNode -> objectMapper.valueToTree<JsonNode>(json.size())
+                is ObjectNode -> objectMapper.valueToTree<JsonNode>(json.size())
+                else -> objectMapper.valueToTree<JsonNode>(1)
             }
             "@join" -> when (json) {
                 is ArrayNode -> {
@@ -1417,7 +1514,7 @@ object GSJson {
                             else -> node.toString().removeSurrounding("\"")
                         }
                     }
-                    objectMapper.valueToTree(joinedString)
+                    objectMapper.valueToTree<JsonNode>(joinedString)
                 }
                 else -> json
             }
@@ -1455,7 +1552,7 @@ object GSJson {
                         json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) * multiplier
                         else -> 0.0
                     }
-                    objectMapper.valueToTree(value)
+                    objectMapper.valueToTree<JsonNode>(value)
                 }
             }
             "@divide", "@div" -> when (json) {
@@ -1481,7 +1578,7 @@ object GSJson {
                         json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) / divisor
                         else -> 0.0
                     }
-                    objectMapper.valueToTree(value)
+                    objectMapper.valueToTree<JsonNode>(value)
                 }
             }
             "@add", "@plus" -> when (json) {
@@ -1505,7 +1602,7 @@ object GSJson {
                         json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) + addend
                         else -> addend
                     }
-                    objectMapper.valueToTree(value)
+                    objectMapper.valueToTree<JsonNode>(value)
                 }
             }
             "@subtract", "@sub" -> when (json) {
@@ -1529,7 +1626,7 @@ object GSJson {
                         json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0) - subtrahend
                         else -> -subtrahend
                     }
-                    objectMapper.valueToTree(value)
+                    objectMapper.valueToTree<JsonNode>(value)
                 }
             }
             "@power", "@pow" -> when (json) {
@@ -1553,7 +1650,7 @@ object GSJson {
                         json.isTextual -> (json.asText().toDoubleOrNull() ?: 0.0).pow(exponent)
                         else -> 0.0
                     }
-                    objectMapper.valueToTree(value)
+                    objectMapper.valueToTree<JsonNode>(value)
                 }
             }
             "@round" -> when (json) {
@@ -1579,7 +1676,7 @@ object GSJson {
                         json.isTextual -> round((json.asText().toDoubleOrNull() ?: 0.0) * multiplier) / multiplier
                         else -> 0.0
                     }
-                    objectMapper.valueToTree(value)
+                    objectMapper.valueToTree<JsonNode>(value)
                 }
             }
             "@abs" -> when (json) {
@@ -1601,7 +1698,7 @@ object GSJson {
                         json.isTextual -> abs(json.asText().toDoubleOrNull() ?: 0.0)
                         else -> 0.0
                     }
-                    objectMapper.valueToTree(value)
+                    objectMapper.valueToTree<JsonNode>(value)
                 }
             }
             "@sort" -> when (json) {

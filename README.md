@@ -29,14 +29,14 @@ Use the current published version from the examples below.
 <dependency>
     <groupId>com.transportial</groupId>
     <artifactId>GSJson</artifactId>
-    <version>1.2.6</version>
+    <version>1.2.8</version>
 </dependency>
 ```
 
 **Gradle:**
 ```groovy
 dependencies {
-    implementation 'com.transportial:GSJson:1.2.6'
+    implementation 'com.transportial:GSJson:1.2.8'
 }
 ```
 
@@ -69,9 +69,12 @@ A path is a series of keys separated by dots. GSJson supports the following path
 | `"value"` | Constant — returns literal string `value` |
 | `developers.[0]` | Array index |
 | `developers.[#]` | Array length |
-| `developers.[#.firstName]` | All `firstName` values from array |
+| `developers.[#.firstName]` | All `firstName` values from array (missing ones omitted) |
+| `developers.#.firstName` | Same, unbracketed; the mapping stops at the first `\|@modifier` |
+| `developers.1.firstName` | A plain number on an array is an index |
+| `developers.firstName` | Any other plain key on an array reads the first element |
 | `*.name` or `test?` | Wildcard key matching |
-| `friends.[age > "25"]` | Filter array by condition |
+| `friends.[age > "25"]` | Filter array by condition; spaces around the operator are optional and a quoted constant may contain spaces (`[last=="Van Dam"]`). An unquoted right side is a path. A missing operand compares as `""` |
 | `friends.[age == <<.age]` | Filter using back-reference to parent |
 | `friends.[nets.[# == "fb"]]` | Nested sub-array filter |
 | `children\|@reverse` | Modifier chaining via pipe |
@@ -159,6 +162,14 @@ GSJson.get(json, 'friends.[last == "Murphy"].first')        // Returns: 'Dale'
 GSJson.get(json, 'friends.[age > "45"].[0].first')          // Returns: 'Roger'
 GSJson.get(json, 'friends.[nets.[# == "fb"]].[#.first]')    // Returns: ['Dale','Roger','David']
 ```
+
+### Values
+
+Numbers keep their type (`Int`, `Long`, `BigInteger`, `Double`). For `org.json` input a decimal stays a `Double`
+unless that would change its text, in which case it is the `BigDecimal` org.json holds (`12.50`, `1E+5`).
+An explicit JSON `null` is returned as `JSONObject.NULL` for `org.json` input and as `NullNode` for `JsonNode`
+input, so it can be told apart from a missing path (`null`); the `defaultValue` overloads treat both as absent.
+A `null` array slot reads as absent, the same way `set` treats it as padding. Reads are thread-safe.
 
 ### Back-references
 

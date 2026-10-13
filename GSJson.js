@@ -515,8 +515,28 @@ const _getByPath = (data, path, rootData, contextNodes = []) => {
   let current = data;
   const visited = [...contextNodes];
 
-  for (const token of tokens) {
+  for (let ti = 0; ti < tokens.length; ti++) {
+    const token = tokens[ti];
     if (current === null || current === undefined) return undefined;
+
+    // `items.#.cost.amount`: map the rest of the path (up to the next modifier) over every element.
+    if (token === '#' && isArray(current)) {
+      const rest = tokens.slice(ti + 1);
+      const childTokens = [];
+      while (childTokens.length < rest.length && !rest[childTokens.length].startsWith('@')) {
+        childTokens.push(rest[childTokens.length]);
+      }
+      if (childTokens.length === 0) {
+        current = current.length;
+        continue;
+      }
+      visited.push(current);
+      current = current
+        .map((item) => _getByTokens(item, childTokens, rootData, visited))
+        .filter((v) => v !== undefined);
+      ti += childTokens.length;
+      continue;
+    }
 
     // Constant token
     if (token.startsWith('"') && token.endsWith('"') && token.length >= 2) {
@@ -560,10 +580,24 @@ const _getByPath = (data, path, rootData, contextNodes = []) => {
 
     // Normal key
     visited.push(current);
-    current = (isObject(current) || isArray(current)) ? current[token] : undefined;
+    current = _selectKey(current, token);
   }
 
   return current;
+};
+
+/** Evaluate already-tokenized path parts, by re-joining them with escaped dots kept intact. */
+const _getByTokens = (data, tokens, rootData, contextNodes) =>
+  _getByPath(data, tokens.map((t) => (t.startsWith('[') ? t : t.replace(/\./g, '\\.'))).join('.'), rootData, contextNodes);
+
+/** A number on an array is an index; any other key on an array is read on its first element. */
+const _selectKey = (current, token) => {
+  if (isObject(current)) return current[token];
+  if (isArray(current)) {
+    if (/^\d+$/.test(token)) return current[parseInt(token, 10)];
+    return current.length > 0 ? _selectKey(current[0], token) : undefined;
+  }
+  return undefined;
 };
 
 // ─── JSON Lines ───────────────────────────────────────────────────────────────

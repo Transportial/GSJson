@@ -784,3 +784,34 @@ test('setAll with an empty list returns an unchanged document', () => {
   expect(setAll('{}', [])).toBe('{}');
   expect(setAll('[]', [])).toBe('[]');
 });
+
+// ─── 1.2.8: array keys, unbracketed #, comparisons ───────────────────────────
+
+const orderJson = JSON.stringify({
+  items: [
+    { code: 'A', cost: { amount: '1.5' }, entity: { goods: [{ x: 1 }] }, owner: 'Smith John' },
+    { code: 'B', cost: { amount: 2 }, entity: { goods: [{ x: 2 }] } },
+  ],
+});
+
+test('a plain key on an array reads the first element; a plain number is an index', () => {
+  expect(get(selectJson, 'friends.[last == "Murphy"].first')).toBe('Dale');
+  expect(get(orderJson, 'items.entity.goods.x')).toBe(1);
+  expect(get(orderJson, 'items.1.code')).toBe('B');
+  expect(get(orderJson, 'items.9.code')).toBeUndefined();
+  expect(get('{"items":[]}', 'items.code')).toBeUndefined();
+});
+
+test('unbracketed # maps the rest of the path, before any modifier', () => {
+  expect(get(orderJson, 'items.#.cost.amount')).toEqual(['1.5', 2]);
+  expect(get(orderJson, 'items.#.cost.amount|@sum')).toBe(3.5);
+  expect(get(orderJson, 'items.#.missing')).toEqual([]);
+  expect(get(orderJson, 'items.#')).toBe(2);
+  expect(get(orderJson, 'items.[#.entity.goods.[0].x]')).toEqual([1, 2]);
+});
+
+test('comparisons need no spaces and quoted constants may hold spaces', () => {
+  expect(get(orderJson, 'items.[code=="B"].[0].cost.amount')).toBe(2);
+  expect(get(orderJson, 'items.[owner == "Smith John"].[0].code')).toBe('A');
+  expect(get(orderJson, 'items.[#.cost.amount]|@sum|@round')).toBe(4);
+});
